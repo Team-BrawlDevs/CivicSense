@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SmartWard AI – Interactive Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <style>
+    #map { height: 650px; }
+  </style>
+</head>
+<body>
+
+<h2>SmartWard AI – Click a Road to Block</h2>
+<div id="map"></div>
+
+<h3>Simulation Result</h3>
+<pre id="output">Click any road</pre>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+const map = L.map("map").setView([12.9229, 80.1275], 14);
+
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19
+}).addTo(map);
+
+// Load roads
+fetch("http://127.0.0.1:8000/roads_geojson")
+  .then(res => res.json())
+  .then(data => {
+
+    L.geoJSON(data, {
+  style: {
+    color: "#0066ff",
+    weight: 8,
+    opacity: 1
+  },
+  interactive: true,
+  onEachFeature: function (feature, layer) {
+
+    layer.on("mouseover", function () {
+      layer.setStyle({ color: "orange" });
+      layer._path.style.cursor = "pointer";
+    });
+
+    layer.on("mouseout", function () {
+      layer.setStyle({ color: "#0066ff" });
+    });
+
+    layer.on("click", function () {
+      console.log("Road clicked:", feature.properties);
+      layer.setStyle({ color: "red", weight: 10 });
+      blockRoad(feature, layer);
+    });
+  }
+}).addTo(map);
+
+
+  });
+
+function blockRoad(feature, layer) {
+
+  // Highlight blocked road
+  layer.setStyle({ color: "red", weight: 8 });
+
+  fetch("http://127.0.0.1:8000/simulate_edge", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      u: feature.properties.u,
+      v: feature.properties.v
+    })
+  })
+  .then(res => res.json())
+  .then(data => {
+    document.getElementById("output").textContent =
+      JSON.stringify(data, null, 2);
+  });
+}
+</script>
+
+</body>
+</html>
