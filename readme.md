@@ -1,12 +1,30 @@
 # CivicSense 🏙️
 ### Ward-Level Digital Twin for Urban Policy Simulation
 
-SmartWard AI is a **ward-level digital twin platform** designed to help urban planners and policymakers **simulate, analyze, and evaluate policy decisions before real-world execution**.
+CivicSense AI is a **ward-level digital twin platform** designed to help urban planners and policymakers **simulate, analyze, and evaluate policy decisions before real-world execution**.
 
 The system models a city ward as an interconnected digital environment and enables _what-if_ analysis across urban infrastructure. This repository currently contains a **Proof of Concept (PoC)** focused on **road-closure-based traffic impact simulation**, which serves as the **foundational building block** for the full system.
 
 ---
+## 🎨 UI / UX Wireframes
 
+The high-level user interface and application flow for the full CivicSense platform have been designed as interactive wireframes in Figma.
+
+🔗 **Figma Wireframe:**  
+https://www.figma.com/make/DQZ23LsHDtESkz9JnDax2v/CivicSense-Web-App-Wireframe?t=jTAV2iWMVbSGg6We-1
+
+These wireframes represent the **intended structure of the complete system**, including:
+- Digital Ward Dashboard
+- Scenario & Policy Simulation
+- Multi-system analysis (mobility, drainage, utilities, population)
+- Cross-system impact visualization
+- Decision support views for policymakers
+
+
+
+> Note: The wireframes represent the **full project vision**.  
+> The current repository implements only the **traffic simulation PoC**, which forms the foundational layer of this design.
+---
 ## 🔍 What This PoC Demonstrates
 
 The current Proof of Concept establishes the **core digital twin mechanism**:
@@ -20,27 +38,6 @@ The current Proof of Concept establishes the **core digital twin mechanism**:
 This validates the **end-to-end workflow** of:
 
 > **Digital Modeling → Policy Intervention → AI Simulation → Impact Evaluation**
-
----
-
-## 🎨 UI / UX Wireframes
-
-The high-level user interface and application flow for the full CivicSense platform have been designed as interactive wireframes in Figma.
-
-These wireframes represent the **intended structure of the complete system**, including:
-- Digital Ward Dashboard
-- Scenario & Policy Simulation
-- Multi-system analysis (mobility, drainage, utilities, population)
-- Cross-system impact visualization
-- Decision support views for policymakers
-
-🔗 **Figma Wireframe:**  
-https://www.figma.com/make/DQZ23LsHDtESkz9JnDax2v/CivicSense-Web-App-Wireframe?t=jTAV2iWMVbSGg6We-1
-
-> Note: The wireframes represent the **full project vision**.  
-> The current repository implements only the **traffic simulation PoC**, which forms the foundational layer of this design.
-
-
 ---
 
 ## 🚧 Planned Features (Work in Progress)
