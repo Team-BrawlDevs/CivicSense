@@ -23,19 +23,23 @@ This validates the **end-to-end workflow** of:
 
 ---
 
-## ✅ Implemented Features (PoC)
+## 🎨 UI / UX Wireframes
 
-### 🚦 Mobility & Traffic Simulation
+The high-level user interface and application flow for the full CivicSense platform have been designed as interactive wireframes in Figma.
 
-- Ward-level road network extraction using OpenStreetMap
-- Graph-based representation of roads and intersections
-- Shortest-path routing simulation
-- Road closure as a policy intervention
-- Traffic rerouting and detour computation
-- Congestion impact estimation using distance increase
-- Before vs After comparison visualization
+These wireframes represent the **intended structure of the complete system**, including:
+- Digital Ward Dashboard
+- Scenario & Policy Simulation
+- Multi-system analysis (mobility, drainage, utilities, population)
+- Cross-system impact visualization
+- Decision support views for policymakers
 
-> ✔️ This module acts as the **core foundation** for extending the digital twin to other urban systems.
+🔗 **Figma Wireframe:**  
+https://www.figma.com/make/DQZ23LsHDtESkz9JnDax2v/CivicSense-Web-App-Wireframe?t=jTAV2iWMVbSGg6We-1
+
+> Note: The wireframes represent the **full project vision**.  
+> The current repository implements only the **traffic simulation PoC**, which forms the foundational layer of this design.
+
 
 ---
 
