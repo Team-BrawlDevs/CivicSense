@@ -1,5 +1,4 @@
-# SmartWard AI 🏙️
-
+# CivicSense 🏙️
 ### Ward-Level Digital Twin for Urban Policy Simulation
 
 SmartWard AI is a **ward-level digital twin platform** designed to help urban planners and policymakers **simulate, analyze, and evaluate policy decisions before real-world execution**.
