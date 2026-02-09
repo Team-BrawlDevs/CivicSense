@@ -1,4 +1,4 @@
-#!/home/tharun/projects/CivicSense-main/venv/bin/python3
+#!/home/tharun/projects/CivicSense/venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys

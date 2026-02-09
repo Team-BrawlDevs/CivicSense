@@ -5,6 +5,7 @@ import folium
 from streamlit_folium import st_folium
 from shapely.geometry import LineString, Point
 import geopandas as gpd
+import pandas as pd
 import json
 import math
 import os
@@ -88,6 +89,58 @@ def load_location_pois():
         return gdf
     except Exception:
         return gpd.GeoDataFrame()
+
+
+@st.cache_resource
+def load_drainage():
+    """Load drainage and waterway features from OpenStreetMap (drains, ditches, streams, canals)."""
+    tags = {
+        "waterway": True,  # Get all waterways
+        "man_made": ["drainage", "pipeline", "sewer"],
+    }
+    try:
+        gdf = ox.features_from_point(TAMBARAM_CENTER, tags=tags, dist=TAMBARAM_RADIUS_M)
+        # Filter to only drainage-related features
+        if not gdf.empty:
+            # Keep rows that have waterway tags or are drainage-related
+            mask = gdf.get("waterway", pd.Series([False] * len(gdf))).notna()
+            mask |= gdf.get("man_made", pd.Series([False] * len(gdf))).isin(["drainage", "pipeline", "sewer"])
+            gdf = gdf[mask]
+        return gdf
+    except Exception:
+        return gpd.GeoDataFrame()
+
+
+@st.cache_resource
+def generate_synthetic_drainage():
+    """
+    Generate synthetic drainage layer based on road network patterns.
+    Drainage often follows roads, especially minor roads and residential streets.
+    """
+    G = load_graph()
+    drainage_features = []
+    
+    # Get minor roads (residential, service, etc.) which typically have drainage alongside
+    for u, v, k, data in G.edges(keys=True, data=True):
+        highway = data.get("highway")
+        if highway:
+            highway_type = highway[0] if isinstance(highway, list) else highway
+            # Focus on minor roads where drainage is most common
+            if highway_type in ["residential", "service", "unclassified", "living_street", "tertiary"]:
+                if data.get("geometry") is not None:
+                    geom = data["geometry"]
+                    # Create a parallel line offset slightly (simulating drainage alongside road)
+                    # For simplicity, we'll use the road geometry itself but style it differently
+                    drainage_features.append({
+                        "geometry": geom,
+                        "type": "synthetic_drain",
+                        "highway_type": highway_type,
+                    })
+    
+    if drainage_features:
+        gdf = gpd.GeoDataFrame(drainage_features, crs="EPSG:4326")
+        return gdf
+    return gpd.GeoDataFrame()
 
 
 def haversine_m(lat1, lon1, lat2, lon2):
@@ -350,6 +403,8 @@ with st.spinner("Loading Digital Ward Map (Tambaram)..."):
     pois_gdf = load_pois()
     critical_edges = load_critical_edges()
     location_pois_gdf = load_location_pois()
+    drainage_gdf = load_drainage()
+    synthetic_drainage_gdf = generate_synthetic_drainage()
 
 # --------------------------------------------------
 # 2. SESSION STATE MANAGEMENT
@@ -381,6 +436,8 @@ if "show_pois" not in st.session_state:
     st.session_state["show_pois"] = True
 if "show_critical_roads" not in st.session_state:
     st.session_state["show_critical_roads"] = True
+if "show_drainage" not in st.session_state:
+    st.session_state["show_drainage"] = True
 if "scenario_message" not in st.session_state:
     st.session_state["scenario_message"] = None  # (kind, text) for success/error after text-to-sim
 
@@ -539,6 +596,19 @@ st.session_state["show_critical_roads"] = st.sidebar.checkbox(
     value=st.session_state["show_critical_roads"],
     help="High betweenness – blocking these has high impact",
 )
+st.session_state["show_drainage"] = st.sidebar.checkbox(
+    "Drainage & waterways",
+    value=st.session_state["show_drainage"],
+    help="Drains, ditches, streams, and canals from OpenStreetMap",
+)
+# Show drainage count
+drainage_count = len(drainage_gdf) if not drainage_gdf.empty else 0
+synthetic_count = len(synthetic_drainage_gdf) if not synthetic_drainage_gdf.empty else 0
+if st.session_state["show_drainage"]:
+    if drainage_count > 0:
+        st.sidebar.caption(f"📊 Found {drainage_count} OSM drainage features")
+    if synthetic_count > 0:
+        st.sidebar.caption(f"🔧 Showing {synthetic_count} synthetic drainage lines (based on road patterns)")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 💡 Policy suggestion")
@@ -613,6 +683,118 @@ if st.session_state["show_pois"] and not pois_gdf.empty:
             fill_opacity=0.7,
             tooltip=tooltip,
         ).add_to(m)
+
+# Drainage & waterways layer — from OpenStreetMap (drains, ditches, streams, canals)
+if st.session_state["show_drainage"]:
+    # First, draw OSM drainage features if available
+    if not drainage_gdf.empty:
+        for idx, row in drainage_gdf.iterrows():
+            geom = row.geometry
+            if geom is None:
+                continue
+            
+            # Get drainage type for styling
+            waterway_type = None
+            for col in ("waterway", "man_made", "natural"):
+                if col in row.index and row[col] is not None and str(row[col]) != "nan":
+                    waterway_type = str(row[col])
+                    break
+            
+            # Determine color and style based on type
+            if waterway_type in ["drain", "ditch", "culvert"]:
+                color = "teal"
+                weight = 3
+                opacity = 0.7
+            elif waterway_type in ["stream", "river"]:
+                color = "blue"
+                weight = 4
+                opacity = 0.8
+            elif waterway_type in ["canal"]:
+                color = "cyan"
+                weight = 3
+                opacity = 0.7
+            else:
+                color = "lightblue"
+                weight = 2
+                opacity = 0.6
+            
+            # Get name/tooltip
+            name = None
+            for col in ("name", "waterway", "man_made"):
+                if col in row.index and row[col] is not None and str(row[col]) != "nan":
+                    name = str(row[col])[:50]
+                    break
+            tooltip = name or (waterway_type or "Drainage")
+            
+            # Draw based on geometry type
+            if geom.geom_type in ["LineString", "MultiLineString"]:
+                # Draw as polyline for linear features
+                if geom.geom_type == "LineString":
+                    coords = [[y, x] for x, y in zip(geom.xy[0], geom.xy[1])]
+                else:  # MultiLineString
+                    coords = []
+                    for line in geom.geoms:
+                        coords.extend([[y, x] for x, y in zip(line.xy[0], line.xy[1])])
+                
+                if len(coords) >= 2:
+                    folium.PolyLine(
+                        coords,
+                        color=color,
+                        weight=weight,
+                        opacity=opacity,
+                        tooltip=tooltip,
+                    ).add_to(m)
+            elif geom.geom_type == "Point":
+                # Draw as marker for point features
+                lat, lon = geom.y, geom.x
+                folium.CircleMarker(
+                    location=[lat, lon],
+                    radius=5,
+                    color=color,
+                    fill=True,
+                    fill_color=color,
+                    fill_opacity=0.7,
+                    tooltip=tooltip,
+                ).add_to(m)
+            else:
+                # For polygons or other geometries, use centroid
+                cent = geom.centroid
+                lat, lon = cent.y, cent.x
+                folium.CircleMarker(
+                    location=[lat, lon],
+                    radius=5,
+                    color=color,
+                    fill=True,
+                    fill_color=color,
+                    fill_opacity=0.7,
+                    tooltip=tooltip,
+                ).add_to(m)
+    
+    # Then, draw synthetic drainage based on road patterns (if no OSM data or as supplement)
+    if not synthetic_drainage_gdf.empty:
+        for idx, row in synthetic_drainage_gdf.iterrows():
+            geom = row.geometry
+            if geom is None:
+                continue
+            
+            # Draw synthetic drainage as dashed teal lines alongside minor roads
+            if geom.geom_type in ["LineString", "MultiLineString"]:
+                if geom.geom_type == "LineString":
+                    coords = [[y, x] for x, y in zip(geom.xy[0], geom.xy[1])]
+                else:  # MultiLineString
+                    coords = []
+                    for line in geom.geoms:
+                        coords.extend([[y, x] for x, y in zip(line.xy[0], line.xy[1])])
+                
+                if len(coords) >= 2:
+                    folium.PolyLine(
+                        coords,
+                        color="teal",
+                        weight=2,
+                        opacity=0.5,
+                        dash_array="5, 5",  # Dashed line to distinguish from roads
+                        tooltip=f"Synthetic drainage ({row.get('highway_type', 'road')})",
+                    ).add_to(m)
 
 # A. DRAW CLICK FEEDBACK (The small grey dots showing EXACT click)
 for (clat, clon, ctype) in st.session_state["click_history"]:
