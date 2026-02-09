@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Layers, AlertCircle } from 'lucide-react';
+import { Layers, AlertCircle, ChevronRight } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
 
 export function DigitalWardDashboard() {
   const [activeLayers, setActiveLayers] = useState({
@@ -38,89 +39,123 @@ export function DigitalWardDashboard() {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-5 gap-4">
-        {kpiCards.map((kpi, index) => (
-          <div key={index} className={`rounded-lg p-5 border-2 ${
-            kpi.status === 'good' ? 'bg-green-50 border-green-200' :
-            kpi.status === 'warning' ? 'bg-amber-50 border-amber-200' :
-            'bg-red-50 border-red-200'
-          }`}>
-            <div className="text-sm text-gray-600 mb-2">{kpi.label}</div>
-            <div className="text-3xl mb-2" style={{ color: 
-              kpi.status === 'good' ? '#16a34a' :
-              kpi.status === 'warning' ? '#d97706' :
-              '#dc2626'
-            }}>
-              {kpi.value}
-            </div>
-            <div className="text-xs text-gray-500">{kpi.trend}</div>
-            <div className="mt-3">
-              <span className={`inline-flex px-2 py-1 rounded text-xs ${
-                kpi.status === 'good' ? 'bg-green-200 text-green-800' :
-                kpi.status === 'warning' ? 'bg-amber-200 text-amber-800' :
-                'bg-red-200 text-red-800'
+      {/* KPI Cards - Minimized by default */}
+      <Collapsible defaultOpen={false}>
+        <CollapsibleTrigger className="group flex items-center gap-2 w-full p-3 bg-white rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors">
+          <ChevronRight className="w-5 h-5 text-slate-600 group-data-[state=open]:rotate-90 transition-transform" />
+          <span className="text-lg font-semibold text-slate-800">KPI Cards</span>
+          <span className="text-sm text-gray-500 ml-2">({kpiCards.length} metrics)</span>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <div className="grid grid-cols-5 gap-4 mt-4">
+            {kpiCards.map((kpi, index) => (
+              <div key={index} className={`rounded-lg p-5 border-2 ${
+                kpi.status === 'good' ? 'bg-green-50 border-green-200' :
+                kpi.status === 'warning' ? 'bg-amber-50 border-amber-200' :
+                'bg-red-50 border-red-200'
               }`}>
-                {kpi.status === 'good' ? 'Low Risk' : kpi.status === 'warning' ? 'Medium Risk' : 'High Risk'}
-              </span>
-            </div>
+                <div className="text-sm text-gray-600 mb-2">{kpi.label}</div>
+                <div className="text-3xl mb-2" style={{ color: 
+                  kpi.status === 'good' ? '#16a34a' :
+                  kpi.status === 'warning' ? '#d97706' :
+                  '#dc2626'
+                }}>
+                  {kpi.value}
+                </div>
+                <div className="text-xs text-gray-500">{kpi.trend}</div>
+                <div className="mt-3">
+                  <span className={`inline-flex px-2 py-1 rounded text-xs ${
+                    kpi.status === 'good' ? 'bg-green-200 text-green-800' :
+                    kpi.status === 'warning' ? 'bg-amber-200 text-amber-800' :
+                    'bg-red-200 text-red-800'
+                  }`}>
+                    {kpi.status === 'good' ? 'Low Risk' : kpi.status === 'warning' ? 'Medium Risk' : 'High Risk'}
+                  </span>
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </CollapsibleContent>
+      </Collapsible>
 
       {/* Main Map and Layer Controls */}
       <div className="grid grid-cols-4 gap-6">
-        {/* Layer Controls */}
+        {/* Layer Controls - Entire left column minimized by default */}
         <div className="col-span-1">
-          <div className="bg-white rounded-lg border border-gray-300 p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Layers className="w-5 h-5 text-slate-700" />
-              <h2 className="text-lg text-slate-800">Map Layers</h2>
-            </div>
-            <div className="space-y-2">
-              {Object.entries(activeLayers).map(([key, value]) => (
-                <label key={key} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={value}
-                    onChange={() => toggleLayer(key)}
-                    className="w-4 h-4 text-cyan-600 rounded focus:ring-cyan-500"
-                  />
-                  <span className="text-sm text-slate-700 capitalize">{key.replace(/([A-Z])/g, ' $1')}</span>
-                  <div className={`ml-auto w-3 h-3 rounded-full ${value ? 'bg-cyan-500' : 'bg-gray-300'}`} />
-                </label>
-              ))}
-            </div>
-          </div>
+          <Collapsible defaultOpen={false}>
+            <CollapsibleTrigger className="group flex items-center gap-2 w-full p-4 bg-white rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors text-left">
+              <ChevronRight className="w-5 h-5 text-slate-600 group-data-[state=open]:rotate-90 transition-transform" />
+              <span className="text-lg font-semibold text-slate-800">Left Panel</span>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="space-y-4 mt-4">
+                <Collapsible defaultOpen={false}>
+                  <CollapsibleTrigger className="group flex items-center gap-2 w-full p-4 bg-white rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors text-left">
+                    <ChevronRight className="w-5 h-5 text-slate-600 group-data-[state=open]:rotate-90 transition-transform" />
+                    <Layers className="w-5 h-5 text-slate-700" />
+                    <h2 className="text-lg text-slate-800">Map Layers</h2>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="bg-white rounded-lg border border-gray-300 border-t-0 rounded-t-none p-5 -mt-2 pt-4">
+                      <div className="space-y-2">
+                        {Object.entries(activeLayers).map(([key, value]) => (
+                          <label key={key} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={value}
+                              onChange={() => toggleLayer(key)}
+                              className="w-4 h-4 text-cyan-600 rounded focus:ring-cyan-500"
+                            />
+                            <span className="text-sm text-slate-700 capitalize">{key.replace(/([A-Z])/g, ' $1')}</span>
+                            <div className={`ml-auto w-3 h-3 rounded-full ${value ? 'bg-cyan-500' : 'bg-gray-300'}`} />
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
 
-          {/* Active Alerts */}
-          <div className="bg-white rounded-lg border border-gray-300 p-5 mt-4">
-            <h2 className="text-lg text-slate-800 mb-4">Active Alerts</h2>
-            <div className="space-y-3">
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded">
-                <div className="flex items-center gap-2 mb-1">
-                  <div className="w-2 h-2 bg-amber-500 rounded-full" />
-                  <span className="text-sm text-slate-800">High Power Load</span>
-                </div>
-                <p className="text-xs text-gray-600">Peak demand exceeds 80%</p>
+                {/* Active Alerts - Minimized by default */}
+                <Collapsible defaultOpen={false}>
+                  <CollapsibleTrigger className="group flex items-center gap-2 w-full p-4 bg-white rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors text-left">
+                    <ChevronRight className="w-5 h-5 text-slate-600 group-data-[state=open]:rotate-90 transition-transform" />
+                    <AlertCircle className="w-5 h-5 text-amber-600" />
+                    <h2 className="text-lg text-slate-800">Active Alerts</h2>
+                    <span className="text-sm text-amber-600 ml-auto">2</span>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <div className="bg-white rounded-lg border border-gray-300 border-t-0 rounded-t-none p-5 -mt-2 pt-4">
+                      <div className="space-y-3">
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded">
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className="w-2 h-2 bg-amber-500 rounded-full" />
+                            <span className="text-sm text-slate-800">High Power Load</span>
+                          </div>
+                          <p className="text-xs text-gray-600">Peak demand exceeds 80%</p>
+                        </div>
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded">
+                          <div className="flex items-center gap-2 mb-1">
+                            <div className="w-2 h-2 bg-amber-500 rounded-full" />
+                            <span className="text-sm text-slate-800">Drainage Stress</span>
+                          </div>
+                          <p className="text-xs text-gray-600">Monsoon season approaching</p>
+                        </div>
+                      </div>
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
               </div>
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded">
-                <div className="flex items-center gap-2 mb-1">
-                  <div className="w-2 h-2 bg-amber-500 rounded-full" />
-                  <span className="text-sm text-slate-800">Drainage Stress</span>
-                </div>
-                <p className="text-xs text-gray-600">Monsoon season approaching</p>
-              </div>
-            </div>
-          </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
 
-        {/* Interactive Map */}
+        {/* Interactive Map - Minimized by default */}
         <div className="col-span-3">
-          <div className="bg-white rounded-lg border border-gray-300 overflow-hidden">
-            <div className="bg-slate-100 border-b border-gray-300 px-4 py-3 flex items-center justify-between">
-              <span className="text-sm text-slate-700">Interactive Ward Map</span>
-              <div className="flex gap-2">
+          <Collapsible defaultOpen={false}>
+            <CollapsibleTrigger className="group flex items-center gap-2 w-full p-4 bg-white rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors text-left">
+              <ChevronRight className="w-5 h-5 text-slate-600 group-data-[state=open]:rotate-90 transition-transform" />
+              <span className="text-lg font-semibold text-slate-800">Interactive Ward Map</span>
+              <div className="ml-auto flex gap-2" onClick={(e) => e.stopPropagation()}>
                 <button className="px-3 py-1 bg-white border border-gray-300 rounded text-sm text-slate-700 hover:bg-gray-50">
                   Reset View
                 </button>
@@ -128,6 +163,11 @@ export function DigitalWardDashboard() {
                   Export
                 </button>
               </div>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+          <div className="bg-white rounded-lg border border-gray-300 border-t-0 rounded-t-none overflow-hidden -mt-2">
+            <div className="bg-slate-100 border-b border-gray-300 px-4 py-3 flex items-center justify-between">
+              <span className="text-sm text-slate-700">Interactive Ward Map</span>
             </div>
             <div className="h-[600px] bg-slate-50 relative">
               <svg viewBox="0 0 800 600" className="w-full h-full">
@@ -194,6 +234,8 @@ export function DigitalWardDashboard() {
               </svg>
             </div>
           </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
       </div>
     </div>

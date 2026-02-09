@@ -21,6 +21,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState('landing');
   const [selectedWard, setSelectedWard] = useState('Ward 42');
   const [selectedScenario, setSelectedScenario] = useState('Baseline');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
 
   const renderPage = () => {
     switch (currentPage) {
@@ -65,7 +66,7 @@ export default function App() {
   const showLayout = currentPage !== 'landing' && currentPage !== 'ward-selection';
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 overflow-x-hidden">
       {showLayout ? (
         <>
           <TopNavBar 
@@ -74,9 +75,21 @@ export default function App() {
             onWardChange={setSelectedWard}
             onScenarioChange={setSelectedScenario}
           />
-          <div className="flex pt-16">
-            <Sidebar currentPage={currentPage} onNavigate={setCurrentPage} />
-            <main className="flex-1 ml-64 p-8">
+          <div className="flex pt-16 min-h-screen">
+            <Sidebar
+              currentPage={currentPage}
+              onNavigate={setCurrentPage}
+              isCollapsed={isSidebarCollapsed}
+              onCollapsedChange={setIsSidebarCollapsed}
+            />
+            <main
+              className="flex-1 min-w-0 p-8 overflow-x-hidden transition-all duration-300"
+              style={{
+                marginLeft: isSidebarCollapsed ? '4rem' : '16rem',
+                width: isSidebarCollapsed ? 'calc(100vw - 4rem)' : 'calc(100vw - 16rem)',
+                maxWidth: isSidebarCollapsed ? 'calc(100vw - 4rem)' : 'calc(100vw - 16rem)',
+              }}
+            >
               {renderPage()}
             </main>
           </div>

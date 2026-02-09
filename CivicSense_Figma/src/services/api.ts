@@ -53,14 +53,18 @@ export interface EdgeResult {
 }
 
 /**
- * Fetch roads as GeoJSON
+ * Fetch roads as GeoJSON (supports /api/roads/geojson and legacy /roads_geojson)
  */
 export async function fetchRoadsGeoJSON(): Promise<GeoJSONCollection> {
-  const response = await fetch(`${API_BASE_URL}/api/roads/geojson`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch roads: ${response.statusText}`);
+  for (const path of [`${API_BASE_URL}/api/roads/geojson`, `${API_BASE_URL}/roads_geojson`]) {
+    try {
+      const response = await fetch(path);
+      if (response.ok) return response.json();
+    } catch {
+      continue;
+    }
   }
-  return response.json();
+  throw new Error('Failed to fetch roads');
 }
 
 /**
@@ -214,22 +218,22 @@ export async function findNearestEdge(
 }
 
 /**
- * Simulate blocking an edge
+ * Simulate blocking an edge (supports /api/simulate/edge and legacy /simulate_edge)
  */
 export async function simulateEdge(u: number, v: number): Promise<any> {
-  const response = await fetch(`${API_BASE_URL}/api/simulate/edge`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ u, v }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to simulate edge: ${response.statusText}`);
+  for (const path of [`${API_BASE_URL}/api/simulate/edge`, `${API_BASE_URL}/simulate_edge`]) {
+    try {
+      const response = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ u, v }),
+      });
+      if (response.ok) return response.json();
+    } catch {
+      continue;
+    }
   }
-
-  return response.json();
+  throw new Error('Failed to simulate edge');
 }
 
 /**

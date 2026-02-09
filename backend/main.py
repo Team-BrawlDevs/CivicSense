@@ -382,6 +382,24 @@ def get_edge_coords(graph, u, v, key=0):
         return [[geom.centroid.y, geom.centroid.x]]
     return [list(get_node_coords(graph, u)), list(get_node_coords(graph, v))]
 
+def get_edge_midpoint(graph, u, v):
+    """Get midpoint coordinates of an edge"""
+    data = graph.get_edge_data(u, v)
+    if not data:
+        p1 = get_node_coords(graph, u)
+        p2 = get_node_coords(graph, v)
+        return ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2)
+    
+    d = next(iter(data.values()))
+    if "geometry" in d:
+        geom = d["geometry"]
+        mid_point = geom.interpolate(0.5, normalized=True)
+        return (mid_point.y, mid_point.x)
+    else:
+        p1 = get_node_coords(graph, u)
+        p2 = get_node_coords(graph, v)
+        return ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2)
+
 # Initialize data on startup
 @app.on_event("startup")
 async def startup_event():
@@ -416,11 +434,15 @@ class NearestEdgeRequest(BaseModel):
     lat: float
     lon: float
 
+class BlockedEdgesMidpointsRequest(BaseModel):
+    edges: List[Tuple[int, int]]
+
 # API Routes
 @app.get("/")
 def root():
     return {"status": "CivicSense API running", "version": "1.0.0"}
 
+@app.get("/roads_geojson")
 @app.get("/api/roads/geojson")
 def roads_geojson():
     """Get all roads as GeoJSON"""
@@ -608,16 +630,53 @@ def nearest_edge(req: NearestEdgeRequest):
         "coords": coords
     }
 
+@app.post("/api/blocked-edges/midpoints")
+def get_blocked_edges_midpoints(req: BlockedEdgesMidpointsRequest):
+    """Get midpoints for blocked edges"""
+    G = load_graph()
+    midpoints = []
+    for u, v in req.edges:
+        try:
+            lat, lon = get_edge_midpoint(G, u, v)
+            midpoints.append({"u": u, "v": v, "lat": lat, "lon": lon})
+        except Exception:
+            continue
+    return {"midpoints": midpoints}
+
+@app.post("/simulate_edge")
 @app.post("/api/simulate/edge")
 def simulate_edge(req: EdgeRequest):
-    """Simulate blocking a single edge"""
+    """Simulate blocking a single edge - matches index.html behavior"""
     G = load_graph()
     if not G.has_edge(req.u, req.v):
         raise HTTPException(status_code=404, detail="Edge not found")
-    
-    # This is a simplified simulation - you can enhance this
+
+    # Use simplified path simulation (source/target from graph)
+    nodes = list(G.nodes())
+    if len(nodes) < 2:
+        return {"result": "N/A", "risk": "LOW"}
+    source, target = nodes[0], nodes[-1]
+    base_length = nx.shortest_path_length(G, source, target, weight="traffic_weight")
+    H = G.copy()
+    if H.has_edge(req.u, req.v):
+        for k in list(H[req.u][req.v].keys()):
+            H.remove_edge(req.u, req.v, k)
+    if H.has_edge(req.v, req.u):
+        for k in list(H[req.v][req.u].keys()):
+            H.remove_edge(req.v, req.u, k)
+    try:
+        new_len = nx.shortest_path_length(H, source, target, weight="traffic_weight")
+    except nx.NetworkXNoPath:
+        return {"result": "Destination unreachable", "risk": "HIGH"}
+    increase = ((new_len - base_length) / base_length) * 100
+    risk = "LOW"
+    if increase > 25:
+        risk = "HIGH"
+    elif increase > 10:
+        risk = "MEDIUM"
     return {
-        "success": True,
-        "edge": {"u": req.u, "v": req.v},
-        "message": "Edge blocked"
+        "original_distance": round(base_length, 2),
+        "new_distance": round(new_len, 2),
+        "increase_pct": round(increase, 2),
+        "risk": risk,
     }

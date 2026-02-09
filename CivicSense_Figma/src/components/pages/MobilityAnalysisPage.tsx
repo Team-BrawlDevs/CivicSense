@@ -1,5 +1,6 @@
-import { ArrowRight, AlertCircle, Car, TrendingUp } from 'lucide-react';
+import { ArrowRight, AlertCircle, Car, TrendingUp, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '../ui/collapsible';
 
 export function MobilityAnalysisPage() {
   const congestionData = [
@@ -52,40 +53,49 @@ export function MobilityAnalysisPage() {
 
       {/* Traffic Heatmap and Congestion Chart */}
       <div className="grid grid-cols-2 gap-6">
-        {/* Traffic Heatmap */}
-        <div className="bg-white rounded-lg border border-gray-300 p-6">
-          <h2 className="text-lg text-slate-800 mb-4">Traffic Heatmap - Peak Hour</h2>
-          <div className="bg-slate-50 rounded-lg h-80 relative overflow-hidden">
-            <svg viewBox="0 0 400 320" className="w-full h-full">
-              {/* Road network */}
-              <line x1="50" y1="80" x2="350" y2="80" stroke="#ef4444" strokeWidth="12" opacity="0.8" />
-              <line x1="50" y1="160" x2="350" y2="160" stroke="#f59e0b" strokeWidth="10" opacity="0.8" />
-              <line x1="50" y1="240" x2="350" y2="240" stroke="#22c55e" strokeWidth="8" opacity="0.8" />
-              
-              <line x1="120" y1="40" x2="120" y2="280" stroke="#f59e0b" strokeWidth="9" opacity="0.8" />
-              <line x1="280" y1="40" x2="280" y2="280" stroke="#ef4444" strokeWidth="11" opacity="0.8" />
-              
-              {/* Vehicle markers */}
-              <g>
-                <rect x="100" y="75" width="8" height="10" fill="#dc2626" />
-                <rect x="140" y="75" width="8" height="10" fill="#dc2626" />
-                <rect x="180" y="155" width="8" height="10" fill="#f97316" />
-                <rect x="220" y="155" width="8" height="10" fill="#f97316" />
-              </g>
-              
-              {/* Legend */}
-              <g transform="translate(20, 290)">
-                <line x1="0" y1="0" x2="20" y2="0" stroke="#22c55e" strokeWidth="4" />
-                <text x="25" y="5" className="text-xs fill-slate-700">Low</text>
-                
-                <line x1="80" y1="0" x2="100" y2="0" stroke="#f59e0b" strokeWidth="4" />
-                <text x="105" y="5" className="text-xs fill-slate-700">Medium</text>
-                
-                <line x1="180" y1="0" x2="200" y2="0" stroke="#ef4444" strokeWidth="4" />
-                <text x="205" y="5" className="text-xs fill-slate-700">High</text>
-              </g>
-            </svg>
-          </div>
+        {/* Traffic Heatmap - Minimized by default */}
+        <div>
+          <Collapsible defaultOpen={false}>
+            <CollapsibleTrigger className="group flex items-center gap-2 w-full p-4 bg-white rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors text-left">
+              <ChevronRight className="w-5 h-5 text-slate-600 group-data-[state=open]:rotate-90 transition-transform" />
+              <span className="text-lg font-semibold text-slate-800">Traffic Heatmap - Peak Hour</span>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="bg-white rounded-lg border border-gray-300 border-t-0 rounded-t-none p-6 -mt-2 pt-4">
+                <div className="bg-slate-50 rounded-lg h-80 relative overflow-hidden">
+                  <svg viewBox="0 0 400 320" className="w-full h-full">
+                    {/* Road network */}
+                    <line x1="50" y1="80" x2="350" y2="80" stroke="#ef4444" strokeWidth="12" opacity="0.8" />
+                    <line x1="50" y1="160" x2="350" y2="160" stroke="#f59e0b" strokeWidth="10" opacity="0.8" />
+                    <line x1="50" y1="240" x2="350" y2="240" stroke="#22c55e" strokeWidth="8" opacity="0.8" />
+                    
+                    <line x1="120" y1="40" x2="120" y2="280" stroke="#f59e0b" strokeWidth="9" opacity="0.8" />
+                    <line x1="280" y1="40" x2="280" y2="280" stroke="#ef4444" strokeWidth="11" opacity="0.8" />
+                    
+                    {/* Vehicle markers */}
+                    <g>
+                      <rect x="100" y="75" width="8" height="10" fill="#dc2626" />
+                      <rect x="140" y="75" width="8" height="10" fill="#dc2626" />
+                      <rect x="180" y="155" width="8" height="10" fill="#f97316" />
+                      <rect x="220" y="155" width="8" height="10" fill="#f97316" />
+                    </g>
+                    
+                    {/* Legend */}
+                    <g transform="translate(20, 290)">
+                      <line x1="0" y1="0" x2="20" y2="0" stroke="#22c55e" strokeWidth="4" />
+                      <text x="25" y="5" className="text-xs fill-slate-700">Low</text>
+                      
+                      <line x1="80" y1="0" x2="100" y2="0" stroke="#f59e0b" strokeWidth="4" />
+                      <text x="105" y="5" className="text-xs fill-slate-700">Medium</text>
+                      
+                      <line x1="180" y1="0" x2="200" y2="0" stroke="#ef4444" strokeWidth="4" />
+                      <text x="205" y="5" className="text-xs fill-slate-700">High</text>
+                    </g>
+                  </svg>
+                </div>
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
 
         {/* Congestion Comparison */}
@@ -108,32 +118,41 @@ export function MobilityAnalysisPage() {
 
       {/* Rerouted Paths and Emergency Access */}
       <div className="grid grid-cols-2 gap-6">
-        {/* Rerouted Paths */}
-        <div className="bg-white rounded-lg border border-gray-300 p-6">
-          <h2 className="text-lg text-slate-800 mb-4">Recommended Rerouted Paths</h2>
-          <div className="space-y-3">
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-slate-800">Main St → Park Ave</span>
-                <span className="text-xs text-blue-700 bg-blue-100 px-2 py-1 rounded">Priority 1</span>
+        {/* Rerouted Paths - Minimized by default */}
+        <div>
+          <Collapsible defaultOpen={false}>
+            <CollapsibleTrigger className="group flex items-center gap-2 w-full p-4 bg-white rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors text-left">
+              <ChevronRight className="w-5 h-5 text-slate-600 group-data-[state=open]:rotate-90 transition-transform" />
+              <span className="text-lg font-semibold text-slate-800">Recommended Rerouted Paths</span>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+              <div className="bg-white rounded-lg border border-gray-300 border-t-0 rounded-t-none p-6 -mt-2 pt-4">
+                <div className="space-y-3">
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm text-slate-800">Main St → Park Ave</span>
+                      <span className="text-xs text-blue-700 bg-blue-100 px-2 py-1 rounded">Priority 1</span>
+                    </div>
+                    <div className="text-xs text-gray-600">Reduces congestion by 18%</div>
+                  </div>
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm text-slate-800">River Rd → Hill St</span>
+                      <span className="text-xs text-blue-700 bg-blue-100 px-2 py-1 rounded">Priority 2</span>
+                    </div>
+                    <div className="text-xs text-gray-600">Reduces congestion by 12%</div>
+                  </div>
+                  <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm text-slate-800">Lake Dr (alternative)</span>
+                      <span className="text-xs text-gray-700 bg-gray-100 px-2 py-1 rounded">Priority 3</span>
+                    </div>
+                    <div className="text-xs text-gray-600">Reduces congestion by 8%</div>
+                  </div>
+                </div>
               </div>
-              <div className="text-xs text-gray-600">Reduces congestion by 18%</div>
-            </div>
-            <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-slate-800">River Rd → Hill St</span>
-                <span className="text-xs text-blue-700 bg-blue-100 px-2 py-1 rounded">Priority 2</span>
-              </div>
-              <div className="text-xs text-gray-600">Reduces congestion by 12%</div>
-            </div>
-            <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm text-slate-800">Lake Dr (alternative)</span>
-                <span className="text-xs text-gray-700 bg-gray-100 px-2 py-1 rounded">Priority 3</span>
-              </div>
-              <div className="text-xs text-gray-600">Reduces congestion by 8%</div>
-            </div>
-          </div>
+            </CollapsibleContent>
+          </Collapsible>
         </div>
 
         {/* Emergency Vehicle Accessibility */}
