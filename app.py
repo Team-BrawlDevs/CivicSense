@@ -5,6 +5,9 @@ import folium
 from streamlit_folium import st_folium
 from shapely.geometry import LineString, Point
 import geopandas as gpd
+import json
+import math
+import os
 
 # --------------------------------------------------
 # CONFIGURATION
@@ -15,6 +18,25 @@ st.set_page_config(layout="wide", page_title="Digital Ward: Traffic Sim")
 TAMBARAM_CENTER = (12.9229, 80.1275)
 TAMBARAM_RADIUS_M = 2000
 TOP_CRITICAL_ROADS = 10  # Policy suggestion: number of "critical" links to show
+
+
+def get_gemini_api_key():
+    """Get Gemini API key from env (GEMINI_API_KEY or GOOGLE_API_KEY) or from apikey.txt in project root."""
+    key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if key and key.strip():
+        return key.strip()
+    try:
+        root = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.join(root, "apikey.txt")
+        if os.path.isfile(path):
+            with open(path, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        return line.strip()  # Ensure no trailing whitespace
+    except Exception:
+        pass
+    return None
 
 # --------------------------------------------------
 # 1. LOAD MAP DATA (Cached) — Roads, POIs, Critical Links
@@ -54,10 +76,280 @@ def load_critical_edges():
         return []
 
 
+@st.cache_resource
+def load_location_pois():
+    """Load POIs used for text-to-simulation location resolution (market, etc.)."""
+    tags = {
+        "amenity": ["market", "marketplace", "hospital", "clinic", "school", "university", "college", "police", "fire_station"],
+        "building": ["school", "hospital", "university", "college", "retail", "commercial"],
+    }
+    try:
+        gdf = ox.features_from_point(TAMBARAM_CENTER, tags=tags, dist=TAMBARAM_RADIUS_M)
+        return gdf
+    except Exception:
+        return gpd.GeoDataFrame()
+
+
+def haversine_m(lat1, lon1, lat2, lon2):
+    """Approximate distance in metres between two (lat, lon) points."""
+    R = 6371000  # Earth radius in metres
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lon2 - lon1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlam / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
+
+
+def get_edges_in_radius(graph, center_lat, center_lon, radius_m, max_edges=80):
+    """Return list of (u, v) for edges whose midpoint is within radius_m of (center_lat, center_lon). Capped at max_edges, closest first."""
+    candidates = []
+    for u, v, k, data in graph.edges(keys=True, data=True):
+        if data.get("geometry") is not None:
+            mid = data["geometry"].interpolate(0.5, normalized=True)
+            lat, lon = mid.y, mid.x
+        else:
+            yu, xu = graph.nodes[u]["y"], graph.nodes[u]["x"]
+            yv, xv = graph.nodes[v]["y"], graph.nodes[v]["x"]
+            lat = (yu + yv) / 2
+            lon = (xu + xv) / 2
+        d = haversine_m(center_lat, center_lon, lat, lon)
+        if d <= radius_m:
+            candidates.append((d, (u, v)))
+    candidates.sort(key=lambda x: x[0])
+    return [uv for (_, uv) in candidates[:max_edges]]
+
+
+def get_highway_type(graph, u, v):
+    """Return OSM highway tag for edge (u, v), first key. Normalized to string."""
+    data = graph.get_edge_data(u, v)
+    if not data:
+        return None
+    d = next(iter(data.values()))
+    h = d.get("highway")
+    if h is None:
+        return None
+    return (h[0] if isinstance(h, list) else h) or None
+
+
+# OSM highway classification for text-to-simulation
+MINOR_HIGHWAY_TYPES = {"residential", "service", "unclassified", "living_street", "tertiary", "secondary", "secondary_link", "tertiary_link"}
+PRIMARY_HIGHWAY_TYPES = {"motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link"}
+
+
+def filter_edges_by_road_type(graph, edge_tuples, road_filter):
+    """Filter edge_tuples to those matching road_filter: 'minor' | 'non_primary' | 'all'."""
+    if road_filter == "all":
+        return list(edge_tuples)
+    kept = []
+    for (u, v) in edge_tuples:
+        h = get_highway_type(graph, u, v)
+        if h is None:
+            if road_filter == "minor":
+                kept.append((u, v))
+            continue
+        if road_filter == "minor":
+            if h in MINOR_HIGHWAY_TYPES:
+                kept.append((u, v))
+        elif road_filter == "non_primary":
+            if h not in PRIMARY_HIGHWAY_TYPES:
+                kept.append((u, v))
+    return kept
+
+
+def resolve_location_center(location_type, location_pois_gdf):
+    """Resolve location_type to (lat, lon). Falls back to TAMBARAM_CENTER if not found."""
+    if location_type == "ward_center":
+        return TAMBARAM_CENTER
+    if location_pois_gdf.empty:
+        return TAMBARAM_CENTER
+    # Map location_type to OSM tags / building types
+    type_to_amenity = {
+        "market": ["market", "marketplace"],
+        "hospital": ["hospital", "clinic"],
+        "school": ["school", "university", "college"],
+        "commercial": ["retail", "commercial", "market"],
+    }
+    amenities = type_to_amenity.get(location_type, [location_type])
+    for _, row in location_pois_gdf.iterrows():
+        geom = row.geometry
+        if geom is None:
+            continue
+        if geom.geom_type == "Point":
+            lat, lon = geom.y, geom.x
+        else:
+            cent = geom.centroid
+            lat, lon = cent.y, cent.x
+        for col in ("amenity", "building"):
+            if col in row.index and row[col] is not None and str(row[col]) != "nan":
+                val = str(row[col]).lower()
+                if any(a in val for a in amenities):
+                    return (lat, lon)
+    return TAMBARAM_CENTER
+
+
+def parse_scenario_with_keywords(user_text):
+    """
+    Simple keyword-based parser (no API needed) for common scenarios.
+    Returns (success: bool, result_or_error: dict|str).
+    """
+    text = user_text.lower().strip()
+    if not text:
+        return (False, "Empty input")
+    
+    # Extract location type
+    location_type = "ward_center"  # default
+    if any(word in text for word in ["market", "shopping", "commercial"]):
+        location_type = "market"
+    elif any(word in text for word in ["hospital", "clinic", "medical"]):
+        location_type = "hospital"
+    elif any(word in text for word in ["school", "university", "college", "education"]):
+        location_type = "school"
+    elif any(word in text for word in ["ward", "center", "centre", "area"]):
+        location_type = "ward_center"
+    
+    # Extract radius
+    radius_m = 400  # default for "near"
+    if any(word in text for word in ["near", "close", "around", "surrounding"]):
+        radius_m = 400
+    elif any(word in text for word in ["whole", "entire", "all", "full", "complete"]):
+        radius_m = 1500
+    elif any(word in text for word in ["within", "inside"]):
+        radius_m = 600
+    
+    # Extract road filter
+    road_filter = "minor"  # default
+    if any(word in text for word in ["all", "every", "entire", "complete"]):
+        road_filter = "all"
+    elif any(word in text for word in ["non-primary", "non primary", "secondary", "tertiary"]):
+        road_filter = "non_primary"
+    elif any(word in text for word in ["minor", "small", "residential", "local", "side"]):
+        road_filter = "minor"
+    
+    # Extract event type (optional)
+    event = "road_closure"
+    if any(word in text for word in ["flood", "flooding", "rain", "water"]):
+        event = "flash_flood"
+    elif any(word in text for word in ["construction", "repair", "maintenance"]):
+        event = "construction"
+    
+    return (True, {
+        "location_type": location_type,
+        "radius_m": radius_m,
+        "road_filter": road_filter,
+        "event": event,
+    })
+
+
+def parse_scenario_with_llm(user_text):
+    """
+    Use Gemini to parse natural language into structured intent.
+    Returns (success: bool, result_or_error: dict|str).
+    If success=True, result_or_error is the intent dict.
+    If success=False, result_or_error is an error message string.
+    """
+    api_key = get_gemini_api_key()
+    if not api_key or not user_text or not user_text.strip():
+        return (False, "API key not found or empty input")
+    
+    prompt = """You are a parser for an urban traffic simulation. The user describes a scenario (e.g. flash flood, road closure).
+Extract and return ONLY a JSON object with exactly these keys (no other text, no markdown):
+- "location_type": one of "market", "hospital", "school", "ward_center", "commercial"
+- "radius_m": number in metres, 150 to 1500 (use 400 for "near", 800 for "around", 1500 for "whole area")
+- "road_filter": one of "minor", "non_primary", "all" (minor = residential/small roads, non_primary = all except main highways, all = every road)
+- "event": short label e.g. "flash_flood" or "road_closure" (optional)
+
+Examples:
+User: "Simulate a flash flood near the market that blocks all minor roads" -> {"location_type": "market", "radius_m": 400, "road_filter": "minor", "event": "flash_flood"}
+User: "Block non-primary roads around the hospital" -> {"location_type": "hospital", "radius_m": 500, "road_filter": "non_primary", "event": "road_closure"}
+User: "Close every road in the ward center" -> {"location_type": "ward_center", "radius_m": 600, "road_filter": "all", "event": "full_closure"}
+
+User input: """
+    
+    try:
+        import google.generativeai as genai
+        
+        # Clean API key (remove any whitespace)
+        api_key = api_key.strip()
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-2.0-flash")
+        
+        # Try GenerationConfig import, fallback to dict
+        try:
+            from google.generativeai.types import GenerationConfig
+            gen_config = GenerationConfig(
+                response_mime_type="application/json",
+                max_output_tokens=200,
+            )
+        except ImportError:
+            # Fallback to dict format
+            gen_config = {
+                "response_mime_type": "application/json",
+                "max_output_tokens": 200,
+            }
+        
+        resp = model.generate_content(
+            prompt + user_text.strip()[:500],
+            generation_config=gen_config,
+        )
+        text = (resp.text or "").strip()
+        if not text:
+            return (False, "Empty response from API")
+        
+        # Strip optional markdown code block
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        
+        out = json.loads(text)
+        out.setdefault("location_type", "ward_center")
+        out.setdefault("radius_m", 400)
+        out.setdefault("road_filter", "minor")
+        if not isinstance(out["radius_m"], (int, float)):
+            out["radius_m"] = 400
+        out["radius_m"] = max(150, min(1500, int(out["radius_m"])))
+        return (True, out)
+        
+    except json.JSONDecodeError as e:
+        return (False, f"Invalid JSON response. Try rephrasing your scenario.")
+    except ImportError as e:
+        return (False, f"Missing google-generativeai package. Run: pip install google-generativeai")
+    except Exception as e:
+        error_msg = str(e)
+        if "API_KEY" in error_msg or "api_key" in error_msg.lower() or "authentication" in error_msg.lower() or "403" in error_msg or "401" in error_msg:
+            return (False, f"API key error: Check your GEMINI_API_KEY in apikey.txt or environment.")
+        elif "429" in error_msg or "quota" in error_msg.lower() or "exceeded" in error_msg.lower():
+            return (False, f"⚠️ Free tier quota exceeded. Wait a minute or check your quota at: https://ai.dev/rate-limit")
+        elif "404" in error_msg and "model" in error_msg.lower():
+            return (False, f"Model not found. Please update the model name in the code.")
+        else:
+            return (False, f"Error: {error_msg[:150]}")
+
+
+def scenario_intent_to_blocked_edges(graph, intent, location_pois_gdf):
+    """Convert LLM intent dict to list of (u, v) blocked edges."""
+    if not intent:
+        return []
+    lat, lon = resolve_location_center(intent.get("location_type", "ward_center"), location_pois_gdf)
+    radius_m = intent.get("radius_m", 400)
+    road_filter = intent.get("road_filter", "minor")
+    edges_in_radius = get_edges_in_radius(graph, lat, lon, radius_m)
+    blocked = filter_edges_by_road_type(graph, edges_in_radius, road_filter)
+    # Deduplicate (u,v) and (v,u) by normalizing to (min,u,v) then take (u,v) - we store (u,v) and remove both directions in solve_path
+    seen = set()
+    unique = []
+    for (u, v) in blocked:
+        key = (min(u, v), max(u, v))
+        if key not in seen:
+            seen.add(key)
+            unique.append((u, v))
+    return unique
+
+
 with st.spinner("Loading Digital Ward Map (Tambaram)..."):
     G = load_graph()
     pois_gdf = load_pois()
     critical_edges = load_critical_edges()
+    location_pois_gdf = load_location_pois()
 
 # --------------------------------------------------
 # 2. SESSION STATE MANAGEMENT
@@ -89,6 +381,8 @@ if "show_pois" not in st.session_state:
     st.session_state["show_pois"] = True
 if "show_critical_roads" not in st.session_state:
     st.session_state["show_critical_roads"] = True
+if "scenario_message" not in st.session_state:
+    st.session_state["scenario_message"] = None  # (kind, text) for success/error after text-to-sim
 
 # --------------------------------------------------
 # 3. HELPER FUNCTIONS
@@ -158,7 +452,57 @@ if st.sidebar.button("Reset Simulation", type="primary"):
     st.session_state["original_path"] = None
     st.session_state["original_len"] = 0
     st.session_state["last_clicked_coords"] = None
+    st.session_state["scenario_message"] = None
     st.rerun()
+
+st.sidebar.markdown("### 🤖 Text-to-Simulation")
+st.sidebar.caption("Works with keywords (no API needed) or AI (if quota available)")
+scenario_text = st.sidebar.text_area(
+    "Describe a scenario in plain language",
+    placeholder='e.g. "Simulate a flash flood near the market area that blocks all minor roads."',
+    height=80,
+    key="scenario_input",
+    help="Examples: 'block minor roads near market', 'close all roads in ward center', 'flash flood around hospital'",
+)
+if st.sidebar.button("Run scenario", key="run_scenario"):
+    st.session_state["scenario_message"] = None
+    if not scenario_text or not scenario_text.strip():
+        st.session_state["scenario_message"] = ("error", "Please enter a scenario description.")
+    else:
+        with st.sidebar.spinner("Interpreting scenario..."):
+            # Use keyword parser (always works, no API needed)
+            # Optionally enhance with LLM if available and quota allows
+            success, result = parse_scenario_with_keywords(scenario_text)
+            
+            if success:
+                intent = result
+                # Try to enhance with LLM if API key available (optional, may fail due to quota)
+                api_key = get_gemini_api_key()
+                if api_key:
+                    llm_success, llm_result = parse_scenario_with_llm(scenario_text)
+                    if llm_success:
+                        # Use LLM result if available (more accurate)
+                        intent = llm_result
+                        ai_note = "✨ AI"
+                    else:
+                        # LLM failed (quota?), use keyword parser result
+                        ai_note = "✓"
+                else:
+                    ai_note = "✓"
+                
+                blocked = scenario_intent_to_blocked_edges(G, intent, location_pois_gdf)
+                st.session_state["blocked_edges"] = blocked
+                st.session_state["scenario_message"] = ("success", f"{ai_note} Blocked {len(blocked)} roads ({intent.get('road_filter', '?')} near {intent.get('location_type', '?')}).")
+            else:
+                st.session_state["scenario_message"] = ("error", f"{result} (Tip: Try phrases like 'block minor roads near market' or 'close all roads in ward center')")
+        st.rerun()
+
+if st.session_state.get("scenario_message"):
+    kind, msg = st.session_state["scenario_message"]
+    if kind == "success":
+        st.sidebar.success(msg)
+    else:
+        st.sidebar.error(msg)
 
 st.sidebar.markdown("### 📊 Policy Impact Result")
 
