@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { TopNavBar } from './components/TopNavBar';
 import { Sidebar } from './components/Sidebar';
 import { LandingPage } from './components/pages/LandingPage';
@@ -17,11 +17,53 @@ import { ImpactEvaluationPage } from './components/pages/ImpactEvaluationPage';
 import { ScenarioComparisonPage } from './components/pages/ScenarioComparisonPage';
 import { DataSourcesPage } from './components/pages/DataSourcesPage';
 
+const VALID_PAGES = new Set([
+  'landing', 'ward-selection', 'overview', 'scenario-simulation', 'mobility',
+  'drainage', 'water', 'power', 'waste', 'population', 'public-services',
+  'cross-system', 'impact-evaluation', 'scenario-comparison', 'data-sources',
+]);
+
+function getPageFromHash(): string {
+  const hash = window.location.hash.slice(1).replace(/^\/?/, '') || 'landing';
+  const page = hash === '' ? 'landing' : hash;
+  return VALID_PAGES.has(page) ? page : 'landing';
+}
+
 export default function App() {
-  const [currentPage, setCurrentPage] = useState('landing');
+  const [currentPage, setCurrentPageState] = useState(getPageFromHash);
   const [selectedWard, setSelectedWard] = useState('Ward 42');
   const [selectedScenario, setSelectedScenario] = useState('Baseline');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(true);
+
+  // Set initial history state so back from first navigation works
+  useEffect(() => {
+    const page = getPageFromHash();
+    const value = page === 'landing' ? '' : `/${page}`;
+    window.history.replaceState({ page }, '', `#${value}` || '#');
+  }, []);
+
+  // Sync state from browser back/forward
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const page = e.state?.page ?? getPageFromHash();
+      if (VALID_PAGES.has(page)) setCurrentPageState(page);
+    };
+    const handleHashChange = () => setCurrentPageState(getPageFromHash());
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('hashchange', handleHashChange);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('hashchange', handleHashChange);
+    };
+  }, []);
+
+  // Navigate to a page and push history so Back works
+  const setCurrentPage = useCallback((page: string) => {
+    if (!VALID_PAGES.has(page)) return;
+    setCurrentPageState(page);
+    const value = page === 'landing' ? '' : `/${page}`;
+    window.history.pushState({ page }, '', `#${value}` || '#');
+  }, []);
 
   const renderPage = () => {
     switch (currentPage) {
@@ -75,7 +117,7 @@ export default function App() {
             onWardChange={setSelectedWard}
             onScenarioChange={setSelectedScenario}
           />
-          <div className="flex pt-16 min-h-screen">
+          <div className="relative z-0 flex pt-16 min-h-screen">
             <Sidebar
               currentPage={currentPage}
               onNavigate={setCurrentPage}

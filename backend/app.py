@@ -185,6 +185,116 @@ def get_highway_type(graph, u, v):
     return (h[0] if isinstance(h, list) else h) or None
 
 
+def get_edge_name(graph, u, v, key=0):
+    """Return OSM street/road name for edge (u, v). Uses 'name', then 'ref', then highway type."""
+    data = graph.get_edge_data(u, v)
+    if not data:
+        return None
+    d = data.get(key)
+    if d is None:
+        d = next(iter(data.values()))
+    name = d.get("name")
+    if name is not None and str(name).strip():
+        return (name[0] if isinstance(name, list) else name).strip()
+    ref = d.get("ref")
+    if ref is not None and str(ref).strip():
+        return (ref[0] if isinstance(ref, list) else ref).strip()
+    ht = get_highway_type(graph, u, v)
+    if ht:
+        return ht.replace("_", " ").title() + " road"
+    return None
+
+
+def get_node_street_names(graph, node_id):
+    """Return list of unique street names for all edges incident to this node (for intersection labels)."""
+    names = []
+    seen = set()
+    for _, v, k, data in graph.out_edges(node_id, keys=True, data=True):
+        name = get_edge_name(graph, node_id, v, k)
+        if name and name not in seen:
+            seen.add(name)
+            names.append(name)
+    for u, _, k, data in graph.in_edges(node_id, keys=True, data=True):
+        name = get_edge_name(graph, u, node_id, k)
+        if name and name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
+
+
+def get_intersection_label(graph, node_id, max_streets=4):
+    """Return a short label for an intersection, e.g. 'Valachery Main Road / Kamarajar St'."""
+    names = get_node_street_names(graph, node_id)
+    if not names:
+        return None
+    names = sorted(names)[:max_streets]
+    return " / ".join(names)
+
+
+def get_minor_roads_without_drainage(graph):
+    """Return list of {name, highway_type} for minor roads (same set as synthetic drainage) — streets where formal drainage is often missing."""
+    roads = []
+    seen_names = set()
+    for u, v, k, data in graph.edges(keys=True, data=True):
+        highway = data.get("highway")
+        if not highway:
+            continue
+        highway_type = highway[0] if isinstance(highway, list) else highway
+        if highway_type not in ["residential", "service", "unclassified", "living_street", "tertiary"]:
+            continue
+        name = get_edge_name(graph, u, v, k)
+        if name and name not in seen_names:
+            seen_names.add(name)
+            roads.append({"name": name, "highway_type": highway_type})
+    return roads[:15]  # Cap for readability
+
+
+def get_blocked_road_names(graph, blocked_edges):
+    """Return list of unique OSM street names for blocked edges (for scenario summary)."""
+    names = []
+    seen = set()
+    for (u, v) in blocked_edges:
+        data = graph.get_edge_data(u, v)
+        if not data:
+            continue
+        for key in data:
+            name = get_edge_name(graph, u, v, key)
+            if name and name not in seen:
+                seen.add(name)
+                names.append(name)
+                break
+    return names
+
+
+def resolve_location_name(location_type, location_pois_gdf):
+    """Resolve location_type to an OSM place name (e.g. 'Tambaram Market') for scenario summary."""
+    if location_type == "ward_center":
+        return "ward center"
+    if location_pois_gdf.empty:
+        return location_type.replace("_", " ")
+    type_to_amenity = {
+        "market": ["market", "marketplace"],
+        "hospital": ["hospital", "clinic"],
+        "school": ["school", "university", "college"],
+        "commercial": ["retail", "commercial", "market"],
+    }
+    amenities = type_to_amenity.get(location_type, [location_type])
+    for _, row in location_pois_gdf.iterrows():
+        geom = row.geometry
+        if geom is None:
+            continue
+        for col in ("amenity", "building"):
+            if col not in row.index or row[col] is None or str(row[col]) == "nan":
+                continue
+            val = str(row[col]).lower()
+            if not any(a in val for a in amenities):
+                continue
+            if "name" in row.index and row["name"] is not None and str(row["name"]).strip():
+                return str(row["name"]).strip()[:60]
+            return str(row[col]).strip()[:60]
+    return location_type.replace("_", " ")
+
+
 # OSM highway classification for text-to-simulation
 MINOR_HIGHWAY_TYPES = {"residential", "service", "unclassified", "living_street", "tertiary", "secondary", "secondary_link", "tertiary_link"}
 PRIMARY_HIGHWAY_TYPES = {"motorway", "motorway_link", "trunk", "trunk_link", "primary", "primary_link"}
@@ -320,30 +430,20 @@ User: "Close every road in the ward center" -> {"location_type": "ward_center", 
 User input: """
     
     try:
-        import google.generativeai as genai
-        
-        # Clean API key (remove any whitespace)
+        from google import genai
+        from google.genai import types
+
         api_key = api_key.strip()
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
-        
-        # Try GenerationConfig import, fallback to dict
-        try:
-            from google.generativeai.types import GenerationConfig
-            gen_config = GenerationConfig(
-                response_mime_type="application/json",
-                max_output_tokens=200,
-            )
-        except ImportError:
-            # Fallback to dict format
-            gen_config = {
-                "response_mime_type": "application/json",
-                "max_output_tokens": 200,
-            }
-        
-        resp = model.generate_content(
-            prompt + user_text.strip()[:500],
-            generation_config=gen_config,
+        client = genai.Client(api_key=api_key)
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            max_output_tokens=200,
+        )
+
+        resp = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt + user_text.strip()[:500],
+            config=config,
         )
         text = (resp.text or "").strip()
         if not text:
@@ -365,7 +465,7 @@ User input: """
     except json.JSONDecodeError as e:
         return (False, f"Invalid JSON response. Try rephrasing your scenario.")
     except ImportError as e:
-        return (False, f"Missing google-generativeai package. Run: pip install google-generativeai")
+        return (False, f"Missing google-genai package. Run: pip install google-genai")
     except Exception as e:
         error_msg = str(e)
         if "API_KEY" in error_msg or "api_key" in error_msg.lower() or "authentication" in error_msg.lower() or "403" in error_msg or "401" in error_msg:
@@ -376,6 +476,120 @@ User input: """
             return (False, f"Model not found. Please update the model name in the code.")
         else:
             return (False, f"Error: {error_msg[:150]}")
+
+
+def compute_risk_scores(graph, blocked_edges, critical_edges, drainage_gdf, synthetic_drainage_gdf,
+                       pois_gdf, path_detour_percent=0):
+    """
+    Compute flood, traffic, and emergency access risk scores (0–100, higher = worse).
+    Returns dict with flood_risk, traffic_risk, emergency_access_risk and optional brief reasons.
+    """
+    scores = {"flood_risk": 0, "traffic_risk": 0, "emergency_access_risk": 0,
+              "flood_reason": "", "traffic_reason": "", "emergency_reason": ""}
+
+    # ---- Flood risk: drainage coverage + extent of roads without formal drainage ----
+    total_drainage = len(drainage_gdf) if not drainage_gdf.empty else 0
+    synthetic_drainage = len(synthetic_drainage_gdf) if not synthetic_drainage_gdf.empty else 0
+    h_types = ["residential", "service", "unclassified", "living_street", "tertiary"]
+    minor_roads_count = 0
+    for u, v, k, d in graph.edges(keys=True, data=True):
+        h = d.get("highway")
+        if not h:
+            continue
+        ht = h[0] if isinstance(h, list) else h
+        if ht in h_types:
+            minor_roads_count += 1
+    if total_drainage > 0:
+        scores["flood_risk"] = min(100, 15 + (0 if minor_roads_count < 50 else 20))
+        scores["flood_reason"] = "Some OSM drainage present; minor roads may still flood."
+    elif synthetic_drainage > 0:
+        scores["flood_risk"] = min(100, 45 + min(25, synthetic_drainage // 20))
+        scores["flood_reason"] = "No formal OSM drainage; only inferred along roads."
+    else:
+        scores["flood_risk"] = min(100, 70 + min(30, minor_roads_count // 10))
+        scores["flood_reason"] = "No drainage data; high flood risk in low-lying areas."
+
+    # ---- Traffic risk: blocked roads, detour impact, critical bottlenecks ----
+    n_blocked = len(blocked_edges)
+    blocked_set = set((min(u, v), max(u, v)) for (u, v) in blocked_edges)
+    n_bottlenecks = sum(1 for e in critical_edges[:15]
+                        if (min(e[0], e[1]), max(e[0], e[1])) in blocked_set)
+    # Base from blocked count (cap contribution)
+    traffic_from_blocked = min(60, n_blocked * 8)
+    traffic_from_detour = min(30, path_detour_percent * 0.5)
+    traffic_from_bottlenecks = min(25, n_bottlenecks * 12)
+    scores["traffic_risk"] = min(100, int(traffic_from_blocked + traffic_from_detour + traffic_from_bottlenecks))
+    reasons = []
+    if n_blocked > 0:
+        reasons.append(f"{n_blocked} blocked roads")
+    if path_detour_percent > 5:
+        reasons.append(f"{path_detour_percent:.0f}% detour impact")
+    if n_bottlenecks > 0:
+        reasons.append(f"{n_bottlenecks} critical bottlenecks blocked")
+    scores["traffic_reason"] = "; ".join(reasons) if reasons else "No current traffic disruption."
+
+    # ---- Emergency access risk: reachability of hospitals from ward center with blocked edges ----
+    center_node = ox.nearest_nodes(graph, TAMBARAM_CENTER[1], TAMBARAM_CENTER[0])
+    H = graph.copy()
+    for (u, v) in blocked_edges:
+        if H.has_edge(u, v):
+            for k in list(H[u][v].keys()):
+                H.remove_edge(u, v, k)
+        if H.has_edge(v, u):
+            for k in list(H[v][u].keys()):
+                H.remove_edge(v, u, k)
+    emergency_nodes = []
+    if not pois_gdf.empty:
+        for _, row in pois_gdf.iterrows():
+            geom = row.geometry
+            if geom is None:
+                continue
+            if geom.geom_type == "Point":
+                lat, lon = geom.y, geom.x
+            else:
+                cent = geom.centroid
+                lat, lon = cent.y, cent.x
+            for col in ("amenity", "building"):
+                if col in row.index and row[col] is not None:
+                    val = str(row[col]).lower()
+                    if "hospital" in val or "clinic" in val or "police" in val or "fire" in val:
+                        try:
+                            n = ox.nearest_nodes(graph, lon, lat)
+                            emergency_nodes.append((n, val))
+                            break
+                        except Exception:
+                            pass
+    if not emergency_nodes:
+        # No POIs: use distance from center as proxy (longer = higher risk if many blocks)
+        try:
+            far_node = max(graph.nodes(), key=lambda n: (graph.nodes[n]["y"] - TAMBARAM_CENTER[0])**2 + (graph.nodes[n]["x"] - TAMBARAM_CENTER[1])**2)
+            dist = nx.shortest_path_length(H, center_node, far_node, weight="length")
+            scores["emergency_access_risk"] = min(100, 20 + (0 if n_blocked == 0 else min(50, n_blocked * 5)))
+            scores["emergency_reason"] = "No hospital/clinic POIs in data; risk from road blocks only."
+        except (nx.NetworkXNoPath, KeyError):
+            scores["emergency_access_risk"] = min(100, 50 + n_blocked * 3)
+            scores["emergency_reason"] = "Network disconnected or no path; emergency access impaired."
+    else:
+        unreachable = 0
+        max_dist = 0
+        for (node, _) in emergency_nodes[:5]:
+            try:
+                length = nx.shortest_path_length(H, center_node, node, weight="length")
+                max_dist = max(max_dist, length)
+            except nx.NetworkXNoPath:
+                unreachable += 1
+        if unreachable == len(emergency_nodes):
+            scores["emergency_access_risk"] = min(100, 75 + min(25, n_blocked))
+            scores["emergency_reason"] = "Emergency POIs unreachable from ward center with current blocks."
+        elif unreachable > 0:
+            scores["emergency_access_risk"] = min(100, 45 + unreachable * 15 + min(20, n_blocked * 2))
+            scores["emergency_reason"] = f"{unreachable} emergency POI(s) unreachable; blocks reduce access."
+        else:
+            # All reachable; risk from distance and blocked count
+            scores["emergency_access_risk"] = min(100, int(15 + max_dist / 100 + n_blocked * 2))
+            scores["emergency_reason"] = "Emergency POIs reachable; risk from extra distance and blocks."
+
+    return scores
 
 
 def scenario_intent_to_blocked_edges(graph, intent, location_pois_gdf):
@@ -396,6 +610,238 @@ def scenario_intent_to_blocked_edges(graph, intent, location_pois_gdf):
             seen.add(key)
             unique.append((u, v))
     return unique
+
+
+def analyze_simulation_state(graph, blocked_edges, critical_edges, drainage_gdf, synthetic_drainage_gdf, 
+                             start_node, end_node, original_path, original_len, current_path, current_len):
+    """
+    Analyze current simulation state to gather data for policy suggestions.
+    Returns a dictionary with analysis metrics.
+    """
+    analysis = {
+        "blocked_roads_count": len(blocked_edges),
+        "critical_roads_count": len(critical_edges),
+        "has_path": current_path is not None,
+        "path_detour_percent": 0,
+        "drainage_coverage": "unknown",
+        "hotspot_areas": [],
+        "bottleneck_roads": [],
+    }
+    
+    # Calculate detour percentage
+    if original_path and current_path and original_len > 0:
+        analysis["path_detour_percent"] = ((current_len - original_len) / original_len) * 100
+    
+    # Analyze drainage coverage
+    total_drainage = len(drainage_gdf) if not drainage_gdf.empty else 0
+    synthetic_drainage = len(synthetic_drainage_gdf) if not synthetic_drainage_gdf.empty else 0
+    if total_drainage > 0:
+        analysis["drainage_coverage"] = "good"
+    elif synthetic_drainage > 0:
+        analysis["drainage_coverage"] = "synthetic_only"
+    else:
+        analysis["drainage_coverage"] = "poor"
+    
+    # Identify hotspot areas (areas with many blocked roads) + OSM street names for intersection
+    if blocked_edges:
+        node_blocked_count = {}
+        for (u, v) in blocked_edges:
+            node_blocked_count[u] = node_blocked_count.get(u, 0) + 1
+            node_blocked_count[v] = node_blocked_count.get(v, 0) + 1
+        
+        hotspots = sorted(node_blocked_count.items(), key=lambda x: -x[1])[:5]
+        for node_id, count in hotspots:
+            if count >= 2:
+                lat, lon = graph.nodes[node_id]['y'], graph.nodes[node_id]['x']
+                street_names = get_node_street_names(graph, node_id)
+                intersection_label = get_intersection_label(graph, node_id)
+                analysis["hotspot_areas"].append({
+                    "lat": lat,
+                    "lon": lon,
+                    "blocked_edges": count,
+                    "street_names": street_names,
+                    "intersection_label": intersection_label,
+                })
+    
+    # Identify bottleneck roads (critical roads that are blocked) + OSM names
+    blocked_set = set((min(u, v), max(u, v)) for (u, v) in blocked_edges)
+    for edge in critical_edges[:10]:
+        u, v = edge[0], edge[1]
+        key = (min(u, v), max(u, v))
+        if key in blocked_set:
+            try:
+                mid_lat, mid_lon = get_edge_midpoint(u, v)
+                edge_name = get_edge_name(graph, u, v, edge[2] if len(edge) > 2 else 0)
+                intersection_label = get_intersection_label(graph, u) or get_intersection_label(graph, v)
+                analysis["bottleneck_roads"].append({
+                    "lat": mid_lat,
+                    "lon": mid_lon,
+                    "u": u,
+                    "v": v,
+                    "street_name": edge_name,
+                    "intersection_label": intersection_label,
+                })
+            except (KeyError, IndexError):
+                continue
+    
+    # Streets where formal drainage is missing (minor roads; suggest new drainage)
+    if analysis["drainage_coverage"] in ("poor", "synthetic_only"):
+        analysis["streets_without_drainage"] = get_minor_roads_without_drainage(graph)
+    else:
+        analysis["streets_without_drainage"] = []
+    
+    return analysis
+
+
+def generate_policy_suggestions_fallback(analysis):
+    """
+    Generate rule-based, location-specific policy suggestions using OSM street/intersection names.
+    Returns a list of suggestion strings.
+    """
+    suggestions = []
+
+    # Bottlenecks: use exact intersection/street names
+    for b in analysis.get("bottleneck_roads", [])[:2]:
+        label = b.get("intersection_label") or b.get("street_name")
+        if label:
+            suggestions.append(
+                f"Build a bridge or flyover at {label} — critical bottleneck; a new structure would restore connectivity and reduce detours."
+            )
+        else:
+            suggestions.append(
+                "Build a bridge or flyover at the identified critical bottleneck — would restore connectivity and reduce detours."
+            )
+
+    # Hotspots: use exact intersection names
+    for h in analysis.get("hotspot_areas", [])[:2]:
+        label = h.get("intersection_label") or (", ".join(h.get("street_names", [])[:2]) if h.get("street_names") else None)
+        if label:
+            suggestions.append(
+                f"Improve capacity at {label} (e.g. widening, signals, or grade separation) — multiple blocked connections; high impact if upgraded."
+            )
+
+    # Drainage: use exact street names where drainage is missing
+    streets_no_drainage = analysis.get("streets_without_drainage", [])
+    if streets_no_drainage and analysis["drainage_coverage"] in ("poor", "synthetic_only"):
+        names = [r["name"] for r in streets_no_drainage[:3]]
+        street_list = ", ".join(names) if len(names) <= 2 else (names[0] + ", " + names[1] + f" and {len(streets_no_drainage)-2} other streets")
+        suggestions.append(
+            f"Build new or formal drainage on streets where it is missing, e.g. {street_list} — reduces flood risk and road closures during rain."
+        )
+    elif analysis["drainage_coverage"] in ("poor", "synthetic_only"):
+        suggestions.append(
+            "Build or extend drainage along minor and residential roads — current coverage is limited; reduces flood risk and closures during rain."
+        )
+
+    # Detour impact with generic wording if no specific location yet
+    if analysis["path_detour_percent"] > 10 and len(suggestions) < 4:
+        suggestions.append(
+            f"Widen or add alternate roads in high-detour areas — current detour impact is {analysis['path_detour_percent']:.1f}%; improves redundancy."
+        )
+
+    # Default
+    if not suggestions:
+        suggestions.append(
+            "Run more scenarios (block roads, set start/end) to identify specific intersections and streets; then regenerate for location-specific suggestions."
+        )
+
+    return suggestions[:5]
+
+
+def generate_policy_suggestions(analysis, graph, blocked_edges, critical_edges, drainage_gdf):
+    """
+    Use Gemini API to generate infrastructure policy suggestions. On quota/API errors, falls back to rule-based suggestions.
+    Returns (success: bool, suggestions: list[str] | error_message: str, used_fallback: bool).
+    """
+    api_key = get_gemini_api_key()
+    if not api_key:
+        # No API key: return rule-based suggestions so feature still works
+        return (True, generate_policy_suggestions_fallback(analysis), True)
+
+    # Build context with specific OSM names (streets, intersections) for location-specific suggestions
+    context = f"""You are an urban planning AI assistant for Tambaram Ward, Chennai. Use the EXACT street and intersection names below in your suggestions.
+
+Current Simulation State:
+- Blocked Roads: {analysis['blocked_roads_count']}
+- Path Detour Impact: {analysis['path_detour_percent']:.1f}% increase
+- Drainage Coverage: {analysis['drainage_coverage']}
+"""
+    
+    if analysis.get("hotspot_areas"):
+        context += "\nHotspot intersections (use these exact names in suggestions):\n"
+        for i, h in enumerate(analysis["hotspot_areas"][:5], 1):
+            label = h.get("intersection_label") or ", ".join(h.get("street_names", [])[:3]) or f"({h['lat']:.4f}, {h['lon']:.4f})"
+            context += f"{i}. {label} — {h['blocked_edges']} blocked connections\n"
+    
+    if analysis.get("bottleneck_roads"):
+        context += "\nBottleneck roads / intersections (critical and blocked — suggest bridge/flyover here):\n"
+        for i, b in enumerate(analysis["bottleneck_roads"][:5], 1):
+            label = b.get("intersection_label") or b.get("street_name") or f"({b['lat']:.4f}, {b['lon']:.4f})"
+            context += f"{i}. {label}\n"
+    
+    if analysis.get("streets_without_drainage"):
+        context += "\nStreets where drainage is missing or informal (suggest new drainage on these):\n"
+        for i, r in enumerate(analysis["streets_without_drainage"][:8], 1):
+            context += f"{i}. {r['name']} ({r['highway_type']})\n"
+    
+    prompt = context + """
+Generate 3–5 specific, actionable infrastructure policy suggestions. Use the EXACT street and intersection names given above (e.g. "Valachery Mudhumalai Salai", "Kamarajar St", "X / Y four-way intersection").
+Focus on:
+1. Bridges/flyovers at the named bottleneck intersections
+2. New or formal drainage on the named streets where drainage is missing
+3. Road widening or alternate routes at the named hotspot intersections
+4. Emergency access at critical named locations
+
+Each suggestion must name the specific street or intersection (e.g. "Build a bridge at Valachery Mudhumalai Salai / Kamarajar St four-way intersection" or "Build new drainage on [street name]").
+Return ONLY a JSON array of strings, no markdown:
+["suggestion 1", "suggestion 2", ...]
+"""
+    
+    try:
+        from google import genai
+        from google.genai import types
+
+        api_key = api_key.strip()
+        client = genai.Client(api_key=api_key)
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            max_output_tokens=500,
+            temperature=0.7,
+        )
+
+        resp = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config=config,
+        )
+        text = (resp.text or "").strip()
+        if not text:
+            return (False, "Empty response from API")
+        
+        # Strip optional markdown code block
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+        
+        suggestions = json.loads(text)
+        if isinstance(suggestions, list) and all(isinstance(s, str) for s in suggestions):
+            return (True, suggestions, False)
+        else:
+            # Invalid format: use fallback
+            return (True, generate_policy_suggestions_fallback(analysis), True)
+
+    except json.JSONDecodeError:
+        # API returned non-JSON: use fallback
+        return (True, generate_policy_suggestions_fallback(analysis), True)
+    except ImportError:
+        # No package: use fallback so feature still works
+        return (True, generate_policy_suggestions_fallback(analysis), True)
+    except Exception as e:
+        error_msg = str(e)
+        # On quota (429) or other API errors: use rule-based fallback so user still gets suggestions
+        if "429" in error_msg or "quota" in error_msg.lower() or "RESOURCE_EXHAUSTED" in error_msg:
+            return (True, generate_policy_suggestions_fallback(analysis), True)
+        # Other errors: still try fallback
+        return (True, generate_policy_suggestions_fallback(analysis), True)
 
 
 with st.spinner("Loading Digital Ward Map (Tambaram)..."):
@@ -440,6 +886,18 @@ if "show_drainage" not in st.session_state:
     st.session_state["show_drainage"] = True
 if "scenario_message" not in st.session_state:
     st.session_state["scenario_message"] = None  # (kind, text) for success/error after text-to-sim
+if "scenario_blocked_road_names" not in st.session_state:
+    st.session_state["scenario_blocked_road_names"] = []  # OSM names of blocked roads for display
+if "scenario_location_name" not in st.session_state:
+    st.session_state["scenario_location_name"] = ""  # Resolved OSM location name
+if "scenario_event" not in st.session_state:
+    st.session_state["scenario_event"] = ""  # e.g. flash_flood, road_closure
+if "policy_suggestions" not in st.session_state:
+    st.session_state["policy_suggestions"] = None  # List of policy suggestions
+if "policy_analysis" not in st.session_state:
+    st.session_state["policy_analysis"] = None  # Analysis data
+if "policy_suggestions_used_fallback" not in st.session_state:
+    st.session_state["policy_suggestions_used_fallback"] = False  # True when API unavailable, rule-based used
 
 # --------------------------------------------------
 # 3. HELPER FUNCTIONS
@@ -510,6 +968,9 @@ if st.sidebar.button("Reset Simulation", type="primary"):
     st.session_state["original_len"] = 0
     st.session_state["last_clicked_coords"] = None
     st.session_state["scenario_message"] = None
+    st.session_state["scenario_blocked_road_names"] = []
+    st.session_state["scenario_location_name"] = ""
+    st.session_state["scenario_event"] = ""
     st.rerun()
 
 st.sidebar.markdown("### 🤖 Text-to-Simulation")
@@ -549,7 +1010,23 @@ if st.sidebar.button("Run scenario", key="run_scenario"):
                 
                 blocked = scenario_intent_to_blocked_edges(G, intent, location_pois_gdf)
                 st.session_state["blocked_edges"] = blocked
-                st.session_state["scenario_message"] = ("success", f"{ai_note} Blocked {len(blocked)} roads ({intent.get('road_filter', '?')} near {intent.get('location_type', '?')}).")
+                # Map to OSM names for specific scenario summary
+                blocked_names = get_blocked_road_names(G, blocked)
+                location_name = resolve_location_name(intent.get("location_type", "ward_center"), location_pois_gdf)
+                event = intent.get("event", "road_closure")
+                st.session_state["scenario_blocked_road_names"] = blocked_names
+                st.session_state["scenario_location_name"] = location_name
+                st.session_state["scenario_event"] = event
+                # Build message with specific streets and location
+                n = len(blocked)
+                if blocked_names:
+                    name_list = ", ".join(blocked_names[:5])
+                    if len(blocked_names) > 5:
+                        name_list += f" and {len(blocked_names) - 5} more"
+                    msg = f"{ai_note} Blocked {n} roads near {location_name} ({event.replace('_', ' ')}): {name_list}."
+                else:
+                    msg = f"{ai_note} Blocked {n} roads near {location_name} ({event.replace('_', ' ')})."
+                st.session_state["scenario_message"] = ("success", msg)
             else:
                 st.session_state["scenario_message"] = ("error", f"{result} (Tip: Try phrases like 'block minor roads near market' or 'close all roads in ward center')")
         st.rerun()
@@ -558,11 +1035,18 @@ if st.session_state.get("scenario_message"):
     kind, msg = st.session_state["scenario_message"]
     if kind == "success":
         st.sidebar.success(msg)
+        # Show full list of blocked streets (OSM names) in expander
+        names = st.session_state.get("scenario_blocked_road_names", [])
+        if names:
+            with st.sidebar.expander("📋 Blocked streets (OSM)"):
+                for name in names:
+                    st.caption(f"• {name}")
     else:
         st.sidebar.error(msg)
 
 st.sidebar.markdown("### 📊 Policy Impact Result")
 
+path_detour_pct = 0.0
 if st.session_state["end_node"]:
     current_path, current_len = solve_path(
         G, st.session_state["start_node"], st.session_state["end_node"], st.session_state["blocked_edges"]
@@ -576,6 +1060,7 @@ if st.session_state["end_node"]:
     
     if current_path:
         pct = ((current_len - orig_dist) / orig_dist) * 100 if orig_dist > 0 else 0
+        path_detour_pct = pct
         st.sidebar.metric("Original Distance (Blue)", f"{orig_dist:.0f} m")
         st.sidebar.metric("New Distance (Red)", f"{current_len:.0f} m", delta=f"{pct:.2f}% Penalty", delta_color="inverse")
     else:
@@ -583,6 +1068,22 @@ if st.session_state["end_node"]:
 
 st.sidebar.write("---")
 st.sidebar.write(f"**Blocked Roads:** {len(st.session_state['blocked_edges'])}")
+
+# Risk scores (flood, traffic, emergency access)
+risk_scores = compute_risk_scores(
+    G, st.session_state["blocked_edges"], critical_edges,
+    drainage_gdf, synthetic_drainage_gdf, pois_gdf, path_detour_percent=path_detour_pct,
+)
+st.sidebar.markdown("---")
+st.sidebar.markdown("### ⚠️ Risk Scores")
+st.sidebar.caption("0 = low risk, 100 = high risk (based on current scenario)")
+st.sidebar.metric("🌊 Flood", f"{risk_scores['flood_risk']}")
+st.sidebar.metric("🚗 Traffic", f"{risk_scores['traffic_risk']}")
+st.sidebar.metric("🚑 Emergency access", f"{risk_scores['emergency_access_risk']}")
+with st.sidebar.expander("Why these scores?"):
+    st.caption("**Flood:** " + risk_scores["flood_reason"])
+    st.caption("**Traffic:** " + risk_scores["traffic_reason"])
+    st.caption("**Emergency:** " + risk_scores["emergency_reason"])
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🗺️ Data layers (OSM)")
@@ -611,7 +1112,73 @@ if st.session_state["show_drainage"]:
         st.sidebar.caption(f"🔧 Showing {synthetic_count} synthetic drainage lines (based on road patterns)")
 
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 💡 Policy suggestion")
+st.sidebar.markdown("### 💡 Infrastructure Policy Suggestions")
+
+# Analyze current state for policy suggestions
+current_path = None
+current_len = None
+if st.session_state["end_node"]:
+    current_path, current_len = solve_path(
+        G, st.session_state["start_node"], st.session_state["end_node"], st.session_state["blocked_edges"]
+    )
+
+# Generate analysis
+analysis = analyze_simulation_state(
+    G,
+    st.session_state["blocked_edges"],
+    critical_edges,
+    drainage_gdf,
+    synthetic_drainage_gdf,
+    st.session_state.get("start_node"),
+    st.session_state.get("end_node"),
+    st.session_state.get("original_path"),
+    st.session_state.get("original_len", 0),
+    current_path,
+    current_len if current_len else 0,
+)
+
+# Button to generate/refresh policy suggestions
+if st.sidebar.button("🤖 Generate Policy Suggestions", type="secondary"):
+    with st.sidebar.spinner("Analyzing infrastructure needs..."):
+        success, result, used_fallback = generate_policy_suggestions(
+            analysis, G, st.session_state["blocked_edges"], critical_edges, drainage_gdf
+        )
+        if success:
+            st.session_state["policy_suggestions"] = result
+            st.session_state["policy_analysis"] = analysis
+            st.session_state["policy_suggestions_used_fallback"] = used_fallback
+            if used_fallback:
+                st.sidebar.success(f"Generated {len(result)} rule-based suggestions (API quota exceeded or unavailable).")
+            else:
+                st.sidebar.success(f"Generated {len(result)} AI suggestions!")
+        else:
+            st.sidebar.error(result)
+            st.session_state["policy_suggestions"] = None
+            st.session_state["policy_suggestions_used_fallback"] = False
+
+# Display policy suggestions
+if st.session_state.get("policy_suggestions"):
+    if st.session_state.get("policy_suggestions_used_fallback"):
+        st.sidebar.caption("📌 Rule-based suggestions (API quota exceeded or unavailable)")
+    st.sidebar.markdown("#### 📋 Recommended Infrastructure Projects:")
+    suggestions = st.session_state["policy_suggestions"]
+    for i, suggestion in enumerate(suggestions[:5], 1):  # Show top 5
+        st.sidebar.markdown(f"**{i}.** {suggestion}")
+    
+    # Show analysis summary
+    if st.session_state.get("policy_analysis"):
+        analysis = st.session_state["policy_analysis"]
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("#### 📊 Analysis Summary:")
+        st.sidebar.caption(f"• {analysis['blocked_roads_count']} blocked roads")
+        st.sidebar.caption(f"• {analysis['path_detour_percent']:.1f}% detour impact")
+        st.sidebar.caption(f"• {len(analysis['hotspot_areas'])} hotspot areas")
+        st.sidebar.caption(f"• {len(analysis['bottleneck_roads'])} critical bottlenecks")
+else:
+    st.sidebar.caption("Click 'Generate Policy Suggestions' to get AI or rule-based infrastructure recommendations based on current simulation state.")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🗺️ Critical Roads Info")
 st.sidebar.caption(
     "Critical roads are links that carry the most shortest-path traffic. "
     "Blocking them causes the largest detours."

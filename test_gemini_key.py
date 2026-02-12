@@ -33,22 +33,28 @@ def test_api_key():
     print(f"✓ Found API key: {api_key[:10]}...{api_key[-5:]}")
     
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-2.0-flash")
-        
-        print("✓ Testing API call...")
-        resp = model.generate_content(
-            "Say 'Hello' in JSON format: {\"message\": \"Hello\"}",
-            generation_config={"response_mime_type": "application/json", "max_output_tokens": 50}
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=api_key)
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            max_output_tokens=50,
         )
-        print(f"✓ API Response: {resp.text[:100]}")
+
+        print("✓ Testing API call...")
+        resp = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents='Say "Hello" in JSON format: {"message": "Hello"}',
+            config=config,
+        )
+        print(f"✓ API Response: {(resp.text or '')[:100]}")
         print("\n✅ SUCCESS: Your Gemini API key is working!")
         return True
-        
+
     except ImportError:
-        print("❌ ERROR: google-generativeai not installed")
-        print("   Run: pip install google-generativeai")
+        print("❌ ERROR: google-genai not installed")
+        print("   Run: pip install google-genai")
         return False
     except Exception as e:
         print(f"❌ ERROR: {str(e)}")

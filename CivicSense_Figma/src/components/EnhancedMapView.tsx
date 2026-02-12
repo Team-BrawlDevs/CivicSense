@@ -76,13 +76,37 @@ export function EnhancedMapView({
       center,
       zoom,
       minZoom: 14,
-      maxZoom: 19,
+      maxZoom: 18, // match Streamlit map zoom range
     });
 
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '© OpenStreetMap contributors',
     }).addTo(map);
+
+    // Draw ward boundary rectangle (approx 2 km around center) in green
+    const lat = center[0];
+    const lon = center[1];
+    const latDelta = 0.018;  // ~2 km in latitude
+    const lonDelta = 0.0185; // ~2 km in longitude near Tambaram
+    const south = lat - latDelta;
+    const north = lat + latDelta;
+    const west = lon - lonDelta;
+    const east = lon + lonDelta;
+
+    L.rectangle(
+      [
+        [south, west],
+        [north, east],
+      ],
+      {
+        color: 'green',
+        weight: 3,
+        fill: false,
+      }
+    )
+      .bindTooltip('Ward boundary (~2 km)', { permanent: false })
+      .addTo(map);
 
     mapRef.current = map;
 
@@ -130,9 +154,10 @@ export function EnhancedMapView({
           blockedEdges.some(([u, v]) => u === props?.u && v === props?.v);
         
         return {
-          color: isBlocked ? 'red' : '#0066ff',
-          weight: isBlocked ? 8 : 8,
-          opacity: 1,
+          // Show blocked roads strongly, but make base network very subtle
+          color: isBlocked ? 'red' : '#d0d7ff',
+          weight: isBlocked ? 6 : 2,
+          opacity: isBlocked ? 1 : 0.25,
         };
       },
       interactive: true,
@@ -145,13 +170,13 @@ export function EnhancedMapView({
 
         if (!isBlocked) {
           pathLayer.on('mouseover', () => {
-            pathLayer.setStyle({ color: 'orange' });
+            pathLayer.setStyle({ color: 'orange', weight: 3, opacity: 0.9 });
             const el = (pathLayer as any)._path;
             if (el) el.style.cursor = 'pointer';
           });
 
           pathLayer.on('mouseout', () => {
-            pathLayer.setStyle({ color: '#0066ff' });
+            pathLayer.setStyle({ color: '#d0d7ff', weight: 2, opacity: 0.25 });
           });
         }
 
@@ -361,5 +386,10 @@ export function EnhancedMapView({
     }
   }, [newPathCoords]);
 
-  return <div ref={mapContainerRef} className="w-full h-full min-h-[600px]" />;
+  // Contain map stacking so it never paints above app nav (z-[1000])
+  return (
+    <div className="relative z-0 isolate w-full h-full">
+      <div ref={mapContainerRef} className="w-full h-full" />
+    </div>
+  );
 }

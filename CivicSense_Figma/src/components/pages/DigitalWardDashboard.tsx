@@ -155,7 +155,12 @@ export function DigitalWardDashboard() {
             <CollapsibleTrigger className="group flex items-center gap-2 w-full p-4 bg-white rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors text-left">
               <ChevronRight className="w-5 h-5 text-slate-600 group-data-[state=open]:rotate-90 transition-transform" />
               <span className="text-lg font-semibold text-slate-800">Interactive Ward Map</span>
-              <div className="ml-auto flex gap-2" onClick={(e) => e.stopPropagation()}>
+            </CollapsibleTrigger>
+            <CollapsibleContent>
+          <div className="bg-white rounded-lg border border-gray-300 border-t-0 rounded-t-none overflow-hidden -mt-2">
+            <div className="bg-slate-100 border-b border-gray-300 px-4 py-3 flex items-center justify-between">
+              <span className="text-sm text-slate-700">Interactive Ward Map</span>
+              <div className="ml-auto flex gap-2">
                 <button className="px-3 py-1 bg-white border border-gray-300 rounded text-sm text-slate-700 hover:bg-gray-50">
                   Reset View
                 </button>
@@ -163,11 +168,6 @@ export function DigitalWardDashboard() {
                   Export
                 </button>
               </div>
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-          <div className="bg-white rounded-lg border border-gray-300 border-t-0 rounded-t-none overflow-hidden -mt-2">
-            <div className="bg-slate-100 border-b border-gray-300 px-4 py-3 flex items-center justify-between">
-              <span className="text-sm text-slate-700">Interactive Ward Map</span>
             </div>
             <div className="h-[600px] bg-slate-50 relative">
               <svg viewBox="0 0 800 600" className="w-full h-full">

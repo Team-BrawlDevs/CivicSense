@@ -38,6 +38,48 @@ export interface BlockedEdgesResult {
   blocked_edges: [number, number][];
   intent: ScenarioIntent;
   count: number;
+  blocked_road_names?: string[];
+  location_name?: string;
+  event?: string;
+}
+
+export interface RiskScores {
+  flood_risk: number;
+  traffic_risk: number;
+  emergency_access_risk: number;
+  flood_reason: string;
+  traffic_reason: string;
+  emergency_reason: string;
+}
+
+export interface PolicySuggestionsResult {
+  success: boolean;
+  suggestions: string[];
+  used_fallback: boolean;
+  analysis: {
+    blocked_roads_count: number;
+    path_detour_percent: number;
+    drainage_coverage: string;
+    hotspot_areas: Array<{
+      lat: number;
+      lon: number;
+      blocked_edges: number;
+      street_names: string[];
+      intersection_label?: string;
+    }>;
+    bottleneck_roads: Array<{
+      lat: number;
+      lon: number;
+      u: number;
+      v: number;
+      street_name?: string;
+      intersection_label?: string;
+    }>;
+    streets_without_drainage: Array<{
+      name: string;
+      highway_type: string;
+    }>;
+  };
 }
 
 export interface NodeResult {
@@ -234,6 +276,66 @@ export async function simulateEdge(u: number, v: number): Promise<any> {
     }
   }
   throw new Error('Failed to simulate edge');
+}
+
+/**
+ * Compute risk scores for current simulation state
+ */
+export async function computeRiskScores(
+  blockedEdges: [number, number][] = [],
+  pathDetourPercent: number = 0
+): Promise<RiskScores> {
+  const response = await fetch(`${API_BASE_URL}/api/risk-scores`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      blocked_edges: blockedEdges,
+      path_detour_percent: pathDetourPercent,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to compute risk scores: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Generate policy suggestions based on simulation analysis
+ */
+export async function getPolicySuggestions(
+  blockedEdges: [number, number][] = [],
+  startNode?: number | null,
+  endNode?: number | null,
+  originalPath?: number[] | null,
+  originalLength: number = 0,
+  currentPath?: number[] | null,
+  currentLength: number = 0
+): Promise<PolicySuggestionsResult> {
+  const response = await fetch(`${API_BASE_URL}/api/policy-suggestions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      blocked_edges: blockedEdges,
+      start_node: startNode ?? null,
+      end_node: endNode ?? null,
+      original_path: originalPath ?? null,
+      original_length: originalLength,
+      current_path: currentPath ?? null,
+      current_length: currentLength,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to get policy suggestions: ${response.statusText}`);
+  }
+
+  return response.json();
 }
 
 /**
