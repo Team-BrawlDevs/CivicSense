@@ -25,6 +25,34 @@ import {
   type PolicySuggestionsResult,
 } from "../../services/api";
 
+/** Predefined scenario prompts for Chitlapakkam, Selaiyur, and Tambaram West (Tambaram ward) */
+const PREDEFINED_PROMPTS: { area: string; prompts: string[] }[] = [
+  {
+    area: "Chitlapakkam",
+    prompts: [
+      "Flash flood near Chitlapakkam blocking minor roads",
+      "Road closure around Chitlapakkam market affecting non-primary roads",
+      "Heavy rain in Chitlapakkam — block all roads within 500 m",
+    ],
+  },
+  {
+    area: "Selaiyur",
+    prompts: [
+      "Simulate flash flood near Selaiyur blocking minor roads",
+      "Construction near Selaiyur — close non-primary roads in the area",
+      "Waterlogging in Selaiyur — block roads within 600 m",
+    ],
+  },
+  {
+    area: "Tambaram West",
+    prompts: [
+      "Flash flood near Tambaram West blocking minor roads",
+      "Road closure around Tambaram West affecting all roads in 400 m",
+      "Drainage failure near Tambaram West — block residential and service roads",
+    ],
+  },
+];
+
 export function ScenarioConfigPage() {
   // Map data state
   const [roadsGeoJSON, setRoadsGeoJSON] = useState<GeoJSONCollection | null>(
@@ -87,6 +115,7 @@ export function ScenarioConfigPage() {
   >([]);
   const [scenarioLocationName, setScenarioLocationName] = useState<string>("");
   const [scenarioEvent, setScenarioEvent] = useState<string>("");
+  const [mapCenter, setMapCenter] = useState<[number, number]>([12.9229, 80.1275]);
 
   // Load map data on mount
   useEffect(() => {
@@ -141,6 +170,9 @@ export function ScenarioConfigPage() {
       setScenarioBlockedRoadNames(blockedResult.blocked_road_names || []);
       setScenarioLocationName(blockedResult.location_name || "");
       setScenarioEvent(blockedResult.event || "");
+      if (blockedResult.scenario_center && blockedResult.scenario_center.length === 2) {
+        setMapCenter([blockedResult.scenario_center[0], blockedResult.scenario_center[1]]);
+      }
 
       // Compute risk scores
       const pathDetourPct = endNode && currentPath ? percentageIncrease : 0;
@@ -294,7 +326,7 @@ export function ScenarioConfigPage() {
     setPolicySuggestions(null);
     try {
       setIsGeneratingSuggestions(true);
-      const result = await getPolicySuggestions(
+    const result = await getPolicySuggestions(
         blockedEdges,
         startNode,
         endNode,
@@ -302,6 +334,7 @@ export function ScenarioConfigPage() {
         originalLength,
         currentPath,
         currentLength,
+        scenarioLocationName || undefined,
       );
       setPolicySuggestions(result);
     } catch (error) {
@@ -331,6 +364,7 @@ export function ScenarioConfigPage() {
     setScenarioText("");
     setScenarioIntent(null);
     setScenarioMessage(null);
+    setMapCenter([12.9229, 80.1275]);
     setSimulationResult("Click any road or set start/end points");
     setRiskScores(null);
     setPolicySuggestions(null);
@@ -405,6 +439,31 @@ export function ScenarioConfigPage() {
             <p className="text-xs text-slate-500">
               Keywords or AI (if quota available)
             </p>
+            {/* Predefined prompts by area */}
+            <div className="space-y-2">
+              <p className="text-xs font-medium text-slate-600">
+                Quick scenarios by area
+              </p>
+              {PREDEFINED_PROMPTS.map(({ area, prompts }) => (
+                <div key={area} className="space-y-1">
+                  <span className="text-xs font-semibold text-cyan-700">
+                    {area}
+                  </span>
+                  <div className="flex flex-col gap-1">
+                    {prompts.map((prompt) => (
+                      <button
+                        key={prompt}
+                        type="button"
+                        onClick={() => setScenarioText(prompt)}
+                        className="text-left px-2 py-1.5 rounded-md bg-slate-100 hover:bg-cyan-50 border border-slate-200 hover:border-cyan-200 text-xs text-slate-700 w-full break-words"
+                      >
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
             <textarea
               value={scenarioText}
               onChange={(e) => setScenarioText(e.target.value)}
@@ -538,7 +597,7 @@ export function ScenarioConfigPage() {
                 onRoadClick={handleRoadClick}
                 onMapClick={handleMapClick}
                 onSimulationResult={handleSimulationResult}
-                center={[12.9229, 80.1275]}
+                center={mapCenter}
                 zoom={15}
               />
             )}

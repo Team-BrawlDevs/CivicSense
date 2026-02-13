@@ -69,6 +69,9 @@ export function EnhancedMapView({
   }>({});
   const blockedKeysRef = useRef<Set<string>>(new Set());
 
+  // Fixed Tambaram ward center for green boundary (does not follow scenario pan)
+  const WARD_BOUNDARY_CENTER: [number, number] = [12.9229, 80.1275];
+
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
@@ -84,9 +87,9 @@ export function EnhancedMapView({
       attribution: '© OpenStreetMap contributors',
     }).addTo(map);
 
-    // Draw ward boundary rectangle (approx 2 km around center) in green
-    const lat = center[0];
-    const lon = center[1];
+    // Draw ward boundary rectangle (approx 2 km around Tambaram) in green — always fixed
+    const lat = WARD_BOUNDARY_CENTER[0];
+    const lon = WARD_BOUNDARY_CENTER[1];
     const latDelta = 0.018;  // ~2 km in latitude
     const lonDelta = 0.0185; // ~2 km in longitude near Tambaram
     const south = lat - latDelta;

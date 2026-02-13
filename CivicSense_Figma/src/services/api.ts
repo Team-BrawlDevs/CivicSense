@@ -41,6 +41,8 @@ export interface BlockedEdgesResult {
   blocked_road_names?: string[];
   location_name?: string;
   event?: string;
+  /** Resolved [lat, lon] for the scenario area (e.g. Chitlapakkam, Selaiyur, Tambaram West) for map centering */
+  scenario_center?: [number, number];
 }
 
 export interface RiskScores {
@@ -304,7 +306,8 @@ export async function computeRiskScores(
 }
 
 /**
- * Generate policy suggestions based on simulation analysis
+ * Generate policy suggestions based on simulation analysis.
+ * areaName: optional focus area (e.g. Chitlapakkam, Selaiyur, Tambaram West) for area-specific suggestions.
  */
 export async function getPolicySuggestions(
   blockedEdges: [number, number][] = [],
@@ -313,7 +316,8 @@ export async function getPolicySuggestions(
   originalPath?: number[] | null,
   originalLength: number = 0,
   currentPath?: number[] | null,
-  currentLength: number = 0
+  currentLength: number = 0,
+  areaName?: string | null
 ): Promise<PolicySuggestionsResult> {
   const response = await fetch(`${API_BASE_URL}/api/policy-suggestions`, {
     method: 'POST',
@@ -328,6 +332,7 @@ export async function getPolicySuggestions(
       original_length: originalLength,
       current_path: currentPath ?? null,
       current_length: currentLength,
+      area_name: areaName ?? null,
     }),
   });
 
