@@ -6,7 +6,27 @@ import {
   CheckCircle2,
   AlertCircle,
   Layers,
+  Activity,
+  ShieldCheck,
+  Droplets,
+  Navigation,
+  AlertTriangle,
+  Info,
+  ArrowRight,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as RechartsTooltip,
+  ResponsiveContainer,
+  Cell,
+} from "recharts";
+import { motion, AnimatePresence } from "motion/react";
 import { EnhancedMapView } from "../EnhancedMapView";
 import {
   fetchRoadsGeoJSON,
@@ -15,8 +35,6 @@ import {
   fetchDrainageGeoJSON,
   parseScenario,
   getBlockedEdges,
-  calculatePath,
-  findNearestNode,
   computeRiskScores,
   getPolicySuggestions,
   type GeoJSONCollection,
@@ -25,35 +43,31 @@ import {
   type PolicySuggestionsResult,
 } from "../../services/api";
 
-/** Predefined scenario prompts for Chitlapakkam, Selaiyur, and Tambaram West (Tambaram ward) */
-const PREDEFINED_PROMPTS: { area: string; prompts: string[] }[] = [
-  {
-    area: "Chitlapakkam",
-    prompts: [
-      "Flash flood near Chitlapakkam blocking minor roads",
-      "Road closure around Chitlapakkam market affecting non-primary roads",
-      "Heavy rain in Chitlapakkam — block all roads within 500 m",
-    ],
-  },
-  {
-    area: "Selaiyur",
-    prompts: [
-      "Simulate flash flood near Selaiyur blocking minor roads",
-      "Construction near Selaiyur — close non-primary roads in the area",
-      "Waterlogging in Selaiyur — block roads within 600 m",
-    ],
-  },
-  {
-    area: "Tambaram West",
-    prompts: [
-      "Flash flood near Tambaram West blocking minor roads",
-      "Road closure around Tambaram West affecting all roads in 400 m",
-      "Drainage failure near Tambaram West — block residential and service roads",
-    ],
-  },
-];
+const RiskBadge = ({
+  level,
+  color,
+}: {
+  level: string;
+  color: "green" | "amber" | "red";
+}) => {
+  const styles = {
+    green: "bg-emerald-100 text-emerald-700 border-emerald-200",
+    amber: "bg-amber-100 text-amber-700 border-amber-200",
+    red: "bg-rose-100 text-rose-700 border-rose-200",
+  };
+  return (
+    <span
+      className={`px-2 py-0.5 rounded text-[10px] font-bold border uppercase tracking-wider ${styles[color]}`}
+    >
+      {level}
+    </span>
+  );
+};
 
 export function ScenarioConfigPage() {
+  const [activeTab, setActiveTab] = useState("explanation");
+  const [isBottomPanelExpanded, setIsBottomPanelExpanded] = useState(false);
+
   // Map data state
   const [roadsGeoJSON, setRoadsGeoJSON] = useState<GeoJSONCollection | null>(
     null,
@@ -90,20 +104,6 @@ export function ScenarioConfigPage() {
   const [startCoords, setStartCoords] = useState<[number, number] | null>(null);
   const [endCoords, setEndCoords] = useState<[number, number] | null>(null);
   const [blockedEdges, setBlockedEdges] = useState<[number, number][]>([]);
-  const [originalPath, setOriginalPath] = useState<number[] | null>(null);
-  const [originalLength, setOriginalLength] = useState<number>(0);
-  const [currentPath, setCurrentPath] = useState<number[] | null>(null);
-  const [currentLength, setCurrentLength] = useState<number>(0);
-  const [originalPathCoords, setOriginalPathCoords] = useState<
-    [number, number][]
-  >([]);
-  const [newPathCoords, setNewPathCoords] = useState<[number, number][]>([]);
-  const [isCalculatingPath, setIsCalculatingPath] = useState(false);
-
-  // Simulation result (for single road click)
-  const [simulationResult, setSimulationResult] = useState<string>(
-    "Click any road or set start/end points",
-  );
 
   // Risk scores and policy suggestions
   const [riskScores, setRiskScores] = useState<RiskScores | null>(null);
@@ -115,7 +115,9 @@ export function ScenarioConfigPage() {
   >([]);
   const [scenarioLocationName, setScenarioLocationName] = useState<string>("");
   const [scenarioEvent, setScenarioEvent] = useState<string>("");
-  const [mapCenter, setMapCenter] = useState<[number, number]>([12.9229, 80.1275]);
+  const [mapCenter, setMapCenter] = useState<[number, number]>([
+    12.9229, 80.1275,
+  ]);
 
   // Load map data on mount
   useEffect(() => {
@@ -170,15 +172,20 @@ export function ScenarioConfigPage() {
       setScenarioBlockedRoadNames(blockedResult.blocked_road_names || []);
       setScenarioLocationName(blockedResult.location_name || "");
       setScenarioEvent(blockedResult.event || "");
-      if (blockedResult.scenario_center && blockedResult.scenario_center.length === 2) {
-        setMapCenter([blockedResult.scenario_center[0], blockedResult.scenario_center[1]]);
+      if (
+        blockedResult.scenario_center &&
+        blockedResult.scenario_center.length === 2
+      ) {
+        setMapCenter([
+          blockedResult.scenario_center[0],
+          blockedResult.scenario_center[1],
+        ]);
       }
 
-      // Compute risk scores
-      const pathDetourPct = endNode && currentPath ? percentageIncrease : 0;
+      // Compute risk scores (no path/detour)
       const riskScoresResult = await computeRiskScores(
         blockedResult.blocked_edges,
-        pathDetourPct,
+        0,
       );
       setRiskScores(riskScoresResult);
 
@@ -205,11 +212,6 @@ export function ScenarioConfigPage() {
         message += `: ${nameList}${more}`;
       }
       setScenarioMessage({ kind: "success", text: message });
-
-      // Recalculate path if start/end are set
-      if (startNode && endNode) {
-        await recalculatePath(startNode, endNode, blockedResult.blocked_edges);
-      }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Unknown error";
       setScenarioMessage({ kind: "error", text: errorMsg });
@@ -224,100 +226,8 @@ export function ScenarioConfigPage() {
     if (!blockedEdges.some(([eu, ev]) => eu === u && ev === v)) {
       const newBlocked = [...blockedEdges, edge];
       setBlockedEdges(newBlocked);
-
-      // Recalculate path if start/end are set
-      if (startNode && endNode) {
-        await recalculatePath(startNode, endNode, newBlocked);
-      } else {
-        // Update risk scores even without a path
-        const riskScoresResult = await computeRiskScores(newBlocked, 0);
-        setRiskScores(riskScoresResult);
-      }
-    }
-  };
-
-  // Handle map click (set start/end points)
-  const handleMapClick = async (lat: number, lon: number) => {
-    try {
-      const nodeResult = await findNearestNode(lat, lon);
-
-      if (!startNode) {
-        setStartNode(nodeResult.node_id);
-        setStartCoords(nodeResult.coords);
-        setEndNode(null);
-        setEndCoords(null);
-        setOriginalPath(null);
-        setCurrentPath(null);
-        setOriginalPathCoords([]);
-        setNewPathCoords([]);
-      } else if (!endNode) {
-        setEndNode(nodeResult.node_id);
-        setEndCoords(nodeResult.coords);
-        await recalculatePath(startNode, nodeResult.node_id, blockedEdges);
-      } else {
-        // Reset and start new path
-        setStartNode(nodeResult.node_id);
-        setStartCoords(nodeResult.coords);
-        setEndNode(null);
-        setEndCoords(null);
-        setOriginalPath(null);
-        setCurrentPath(null);
-        setOriginalPathCoords([]);
-        setNewPathCoords([]);
-      }
-    } catch (error) {
-      console.error("Failed to handle map click:", error);
-    }
-  };
-
-  // Recalculate path with blocked edges
-  const recalculatePath = async (
-    start: number,
-    end: number,
-    blocked: [number, number][],
-  ) => {
-    try {
-      setIsCalculatingPath(true);
-      const pathResult = await calculatePath(start, end, blocked);
-
-      if (pathResult.success && pathResult.path_coords) {
-        if (!originalPath) {
-          // First calculation - this is the original path
-          setOriginalPath(pathResult.path || []);
-          setOriginalLength(pathResult.length || 0);
-          setOriginalPathCoords(pathResult.path_coords);
-        }
-        setCurrentPath(pathResult.path || []);
-        setCurrentLength(pathResult.length || 0);
-        setNewPathCoords(pathResult.path_coords);
-
-        // Update risk scores with new detour percentage
-        const newDetourPct =
-          originalLength > 0
-            ? ((pathResult.length - originalLength) / originalLength) * 100
-            : 0;
-        const riskScoresResult = await computeRiskScores(blocked, newDetourPct);
-        setRiskScores(riskScoresResult);
-      } else {
-        setCurrentPath(null);
-        setCurrentLength(0);
-        setNewPathCoords([]);
-        // Recalculate risk scores when path becomes unreachable
-        const riskScoresResult = await computeRiskScores(blocked, 0);
-        setRiskScores(riskScoresResult);
-      }
-    } catch (error) {
-      console.error("Failed to calculate path:", error);
-      setCurrentPath(null);
-      setCurrentLength(0);
-      setNewPathCoords([]);
-      // Recalculate risk scores on error (e.g. network failure) so UI stays in sync
-      try {
-        const riskScoresResult = await computeRiskScores(blocked, 0);
-        setRiskScores(riskScoresResult);
-      } catch (_) {}
-    } finally {
-      setIsCalculatingPath(false);
+      const riskScoresResult = await computeRiskScores(newBlocked, 0);
+      setRiskScores(riskScoresResult);
     }
   };
 
@@ -326,17 +236,14 @@ export function ScenarioConfigPage() {
     setPolicySuggestions(null);
     try {
       setIsGeneratingSuggestions(true);
-    const result = await getPolicySuggestions(
+      const result = await getPolicySuggestions(
         blockedEdges,
-        startNode,
-        endNode,
-        originalPath,
-        originalLength,
-        currentPath,
-        currentLength,
         scenarioLocationName || undefined,
       );
       setPolicySuggestions(result);
+      if (result.success && result.suggestions.length > 0) {
+        setIsBottomPanelExpanded(true);
+      }
     } catch (error) {
       console.error("Failed to generate policy suggestions:", error);
       setScenarioMessage({
@@ -350,228 +257,357 @@ export function ScenarioConfigPage() {
 
   // Reset simulation
   const handleReset = () => {
-    setStartNode(null);
-    setEndNode(null);
-    setStartCoords(null);
-    setEndCoords(null);
     setBlockedEdges([]);
-    setOriginalPath(null);
-    setOriginalLength(0);
-    setCurrentPath(null);
-    setCurrentLength(0);
-    setOriginalPathCoords([]);
-    setNewPathCoords([]);
     setScenarioText("");
     setScenarioIntent(null);
     setScenarioMessage(null);
     setMapCenter([12.9229, 80.1275]);
-    setSimulationResult("Click any road or set start/end points");
     setRiskScores(null);
     setPolicySuggestions(null);
     setScenarioBlockedRoadNames([]);
     setScenarioLocationName("");
     setScenarioEvent("");
+    setIsBottomPanelExpanded(false);
   };
-
-  // Handle single road simulation result
-  const handleSimulationResult = (result: unknown) => {
-    setSimulationResult(JSON.stringify(result, null, 2));
-  };
-
-  const percentageIncrease =
-    originalLength > 0
-      ? ((currentLength - originalLength) / originalLength) * 100
-      : 0;
 
   /** Severity label from risk score 0–100 */
   const severityLabel = (
     score: number,
-  ): { label: string; className: string } => {
+  ): {
+    label: string;
+    className: string;
+    badgeColor: "green" | "amber" | "red";
+  } => {
     if (score <= 25)
       return {
         label: "Low",
         className: "text-emerald-600 bg-emerald-50 border-emerald-200",
+        badgeColor: "green",
       };
     if (score <= 50)
       return {
         label: "Medium",
         className: "text-amber-600 bg-amber-50 border-amber-200",
+        badgeColor: "amber",
       };
     if (score <= 75)
       return {
         label: "High",
         className: "text-orange-600 bg-orange-50 border-orange-200",
+        badgeColor: "red",
       };
     return {
       label: "Critical",
       className: "text-red-600 bg-red-50 border-red-200",
+      badgeColor: "red",
     };
   };
 
+  // Derive system impact data from risk scores
+  const systemImpactData = riskScores
+    ? [
+        {
+          name: "Drainage",
+          value: 100 - riskScores.flood_risk,
+          impact:
+            riskScores.flood_risk <= 25
+              ? "High Positive"
+              : riskScores.flood_risk <= 50
+                ? "Moderate Positive"
+                : "Temp Negative",
+          color:
+            riskScores.flood_risk <= 25
+              ? "#0d9488"
+              : riskScores.flood_risk <= 50
+                ? "#0ea5e9"
+                : "#f59e0b",
+        },
+        {
+          name: "Mobility",
+          value: 100 - riskScores.traffic_risk,
+          impact:
+            riskScores.traffic_risk <= 25
+              ? "High Positive"
+              : riskScores.traffic_risk <= 50
+                ? "Moderate Positive"
+                : "Temp Negative",
+          color:
+            riskScores.traffic_risk <= 25
+              ? "#0d9488"
+              : riskScores.traffic_risk <= 50
+                ? "#0ea5e9"
+                : "#f59e0b",
+        },
+        {
+          name: "Emergency",
+          value: 100 - riskScores.emergency_access_risk,
+          impact:
+            riskScores.emergency_access_risk <= 25
+              ? "High Positive"
+              : riskScores.emergency_access_risk <= 50
+                ? "Moderate Positive"
+                : "Temp Negative",
+          color:
+            riskScores.emergency_access_risk <= 25
+              ? "#0d9488"
+              : riskScores.emergency_access_risk <= 50
+                ? "#0ea5e9"
+                : "#f59e0b",
+        },
+      ]
+    : [];
+
+  // Overall risk index (average of three risk scores, inverted)
+  const overallRiskIndex = riskScores
+    ? Math.round(
+        (riskScores.flood_risk +
+          riskScores.traffic_risk +
+          riskScores.emergency_access_risk) /
+          3,
+      )
+    : null;
+  const overallRiskPercent =
+    overallRiskIndex !== null ? 100 - overallRiskIndex : 0;
+
   return (
-    <div className="flex flex-col min-h-[calc(100vh-4rem)] -m-8 bg-[#f8fafc] font-sans">
-      <h2 className="px-6 py-3 text-lg font-semibold text-slate-800 border-b border-slate-200 bg-white">
-        Digital Ward Simulator: Tambaram
-      </h2>
+    <div className="flex flex-col min-h-full bg-[#f8fafc] font-sans">
+      {/* MAIN CONTENT AREA — viewport-based height so map stays fixed and panel can be large below */}
+      <div
+        className="flex shrink-0 overflow-hidden"
+        style={{
+          height: "calc(100vh - 4rem - 2.5rem - 44px)",
+          minHeight: "400px",
+        }}
+      >
+        {/* 1) LEFT PANEL — POLICY & SCENARIO INPUT */}
+        <div className="w-80 flex-shrink-0 bg-white border-r border-slate-200 flex flex-col overflow-y-auto">
+          <div className="p-5 border-b border-slate-100 bg-slate-50/50">
+            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+              <Activity className="w-4 h-4 text-cyan-600" />
+              Policy Definition
+            </h2>
+          </div>
 
-      {/* 3 columns: Left | Center (Map) | Right */}
-      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden">
-        {/* Left column: Text-to-Simulation + Data layers (fixed width, no expand) */}
-        <div
-          className="flex-none flex flex-col bg-white border-r border-slate-200 overflow-hidden overflow-y-scroll overflow-x-hidden p-4 space-y-4"
-          style={{ width: "18rem" }}
-        >
-          <button
-            onClick={handleReset}
-            className="w-full px-4 py-2 bg-cyan-600 text-white rounded-lg text-xs font-bold uppercase hover:bg-cyan-700 flex items-center justify-center gap-2"
-          >
-            <RotateCcw className="w-4 h-4" />
-            Reset Simulation
-          </button>
-
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-cyan-600" />
-              <h3 className="text-sm font-bold text-slate-700">
-                Text-to-Simulation
-              </h3>
-            </div>
-            <p className="text-xs text-slate-500">
-              Keywords or AI (if quota available)
-            </p>
-            {/* Predefined prompts by area */}
+          <div className="p-5 space-y-6">
             <div className="space-y-2">
-              <p className="text-xs font-medium text-slate-600">
-                Quick scenarios by area
-              </p>
-              {PREDEFINED_PROMPTS.map(({ area, prompts }) => (
-                <div key={area} className="space-y-1">
-                  <span className="text-xs font-semibold text-cyan-700">
-                    {area}
-                  </span>
-                  <div className="flex flex-col gap-1">
-                    {prompts.map((prompt) => (
-                      <button
-                        key={prompt}
-                        type="button"
-                        onClick={() => setScenarioText(prompt)}
-                        className="text-left px-2 py-1.5 rounded-md bg-slate-100 hover:bg-cyan-50 border border-slate-200 hover:border-cyan-200 text-xs text-slate-700 w-full break-words"
-                      >
-                        {prompt}
-                      </button>
-                    ))}
-                  </div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                Policy Description
+              </label>
+              {scenarioText ? (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 leading-relaxed italic">
+                  "{scenarioText}"
                 </div>
-              ))}
-            </div>
-            <textarea
-              value={scenarioText}
-              onChange={(e) => setScenarioText(e.target.value)}
-              placeholder='e.g. "Flash flood near market blocking minor roads"'
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 resize-none"
-              rows={3}
-            />
-            <button
-              onClick={handleRunScenario}
-              disabled={isParsingScenario || !scenarioText.trim()}
-              className="w-full px-4 py-2 bg-cyan-600 text-white rounded-lg text-xs font-bold uppercase hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {isParsingScenario ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> Running...
-                </>
               ) : (
-                <>
-                  <Sparkles className="w-4 h-4" /> Run Scenario
-                </>
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-400 italic">
+                  Enter a scenario description below...
+                </div>
               )}
-            </button>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                Scenario Input
+              </label>
+              <textarea
+                value={scenarioText}
+                onChange={(e) => setScenarioText(e.target.value)}
+                placeholder='e.g. "Flash flood near market blocking minor roads"'
+                className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 resize-none"
+                rows={3}
+              />
+              <button
+                onClick={handleRunScenario}
+                disabled={isParsingScenario || !scenarioText.trim()}
+                className="w-full px-4 py-2 bg-cyan-600 text-white rounded-lg text-[10px] font-bold uppercase hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {isParsingScenario ? (
+                  <>
+                    <Loader2 className="w-3 h-3 animate-spin" /> Running...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3 h-3" /> Run Scenario
+                  </>
+                )}
+              </button>
+            </div>
 
             {scenarioMessage && (
-              <div className="min-w-0 w-full overflow-hidden">
-                <div
-                  className={`p-3 rounded-lg text-xs flex items-start gap-2 min-w-0 overflow-hidden ${
-                    scenarioMessage.kind === "success"
-                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                      : "bg-red-50 text-red-700 border border-red-200"
-                  }`}
-                >
-                  <CheckCircle2 className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                  <div className="flex-1 min-w-0 overflow-hidden">
-                    <span className="break-words whitespace-normal">
-                      {scenarioMessage.text}
+              <div
+                className={`p-3 rounded-lg text-[10px] ${
+                  scenarioMessage.kind === "success"
+                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                    : "bg-red-50 text-red-700 border border-red-200"
+                }`}
+              >
+                {scenarioMessage.text}
+              </div>
+            )}
+
+            {/* AI Interpreted Policy Summary Card */}
+            {scenarioIntent && (
+              <div className="p-4 bg-cyan-50 border border-cyan-100 rounded-xl space-y-4">
+                <div className="flex justify-between items-center">
+                  <span className="text-[10px] font-bold text-cyan-700 uppercase tracking-widest">
+                    AI Interpretation
+                  </span>
+                  <span className="px-2 py-0.5 bg-cyan-500 text-white text-[9px] font-bold rounded uppercase">
+                    Policy Simulated
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-1 border-b border-cyan-100/50 pb-2">
+                    <span className="text-[10px] text-slate-500">
+                      Policy Type
                     </span>
-
-                    {scenarioBlockedRoadNames.length > 0 && (
-                      <details className="mt-2 block w-full max-w-full overflow-hidden">
-                        <summary className="cursor-pointer w-full max-w-full break-all">
-                          📋 Blocked streets ({scenarioBlockedRoadNames.length})
-                        </summary>
-
-                        <ul className="mt-1 ml-4 space-y-1 w-full max-w-full">
-                          {scenarioBlockedRoadNames.map((name, idx) => (
-                            <li
-                              key={idx}
-                              className="text-xs break-all w-full max-w-full"
-                            >
-                              • {name}
-                            </li>
-                          ))}
-                        </ul>
-                      </details>
-                    )}
+                    <span className="text-[10px] font-bold text-slate-900 text-right">
+                      {scenarioEvent === "flash_flood"
+                        ? "Flood Mitigation"
+                        : scenarioEvent === "construction"
+                          ? "Infrastructure"
+                          : "Traffic Management"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 border-b border-cyan-100/50 pb-2">
+                    <span className="text-[10px] text-slate-500">
+                      Affected Systems
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-900 text-right leading-tight">
+                      Drainage, Mobility, Emergency
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 border-b border-cyan-100/50 pb-2">
+                    <span className="text-[10px] text-slate-500">
+                      Impacted Zone
+                    </span>
+                    <span className="text-[10px] font-bold text-slate-900 text-right">
+                      {scenarioLocationName || "Tambaram Ward"}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1">
+                    <span className="text-[10px] text-slate-500">Radius</span>
+                    <span className="text-[10px] font-bold text-slate-900 text-right">
+                      {scenarioIntent.radius_m || 400} m
+                    </span>
                   </div>
                 </div>
               </div>
             )}
-          </div>
 
-          <div className="border-t border-slate-200 pt-4">
-            <div className="text-xs font-bold text-slate-700 mb-2">
-              Blocked Roads: {blockedEdges.length}
+            <div className="pt-4 space-y-3">
+              {scenarioMessage?.kind === "success" && (
+                <div className="flex items-center gap-2 text-emerald-600">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span className="text-xs font-bold">Simulation complete</span>
+                </div>
+              )}
+              {policySuggestions && policySuggestions.success && (
+                <div className="flex items-center gap-2 text-cyan-600">
+                  <Sparkles className="w-4 h-4" />
+                  <span className="text-xs font-bold">
+                    AI insights generated
+                  </span>
+                </div>
+              )}
             </div>
-          </div>
 
-          <div className="border-t border-slate-200 pt-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <Layers className="w-4 h-4 text-slate-600" />
-              <h3 className="text-sm font-bold text-slate-700">
-                🗺️ Data Layers (OSM)
-              </h3>
+            {/* Data Layers */}
+            <div className="pt-4 border-t border-slate-100 space-y-2">
+              <div className="flex items-center gap-2">
+                <Layers className="w-4 h-4 text-slate-600" />
+                <h3 className="text-[10px] font-bold text-slate-700 uppercase tracking-widest">
+                  Data Layers
+                </h3>
+              </div>
+              <label className="flex items-center gap-2 text-[10px] text-slate-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showPOIs}
+                  onChange={(e) => setShowPOIs(e.target.checked)}
+                  className="w-3 h-3"
+                />
+                Public services
+              </label>
+              <label className="flex items-center gap-2 text-[10px] text-slate-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showCriticalRoads}
+                  onChange={(e) => setShowCriticalRoads(e.target.checked)}
+                  className="w-3 h-3"
+                />
+                Critical roads
+              </label>
+              <label className="flex items-center gap-2 text-[10px] text-slate-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={showDrainage}
+                  onChange={(e) => setShowDrainage(e.target.checked)}
+                  className="w-3 h-3"
+                />
+                Drainage
+              </label>
             </div>
-            <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={showPOIs}
-                onChange={(e) => setShowPOIs(e.target.checked)}
-                className="w-4 h-4"
-              />
-              Public services (schools, hospitals)
-            </label>
-            <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={showCriticalRoads}
-                onChange={(e) => setShowCriticalRoads(e.target.checked)}
-                className="w-4 h-4"
-              />
-              Critical roads (policy)
-            </label>
-            <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={showDrainage}
-                onChange={(e) => setShowDrainage(e.target.checked)}
-                className="w-4 h-4"
-              />
-              Drainage & waterways
-            </label>
           </div>
         </div>
 
-        {/* Center column: Map */}
-        <div className="flex-1 flex flex-col min-w-0 min-h-0">
-          <div className="relative flex-1 min-h-[420px] p-4">
+        {/* 2) CENTER — DIGITAL WARD MAP (fixed height, does not grow with right panel) */}
+        <div className="flex-1 min-h-0 relative bg-slate-100 flex flex-col overflow-hidden">
+          {/* Map Controls */}
+          <div className="absolute top-4 left-4 z-[1] flex gap-2">
+            <div className="bg-white p-1 rounded-lg shadow-sm border border-slate-200 flex gap-1">
+              <button className="px-3 py-1.5 rounded text-[10px] font-bold uppercase bg-slate-900 text-white">
+                Scenario View
+              </button>
+              <button className="px-3 py-1.5 rounded text-[10px] font-bold uppercase text-slate-400 cursor-not-allowed">
+                Baseline
+              </button>
+            </div>
+            <div className="bg-white p-1 rounded-lg shadow-sm border border-slate-200">
+              <button className="px-3 py-1.5 rounded text-[10px] font-bold uppercase text-slate-600 flex items-center gap-2 hover:bg-slate-50">
+                <Layers className="w-3.5 h-3.5" />
+                Impact Difference
+              </button>
+            </div>
+          </div>
+
+          {/* Map Legend */}
+          {blockedEdges.length > 0 && (
+            <div className="absolute bottom-6 left-6 z-[1] bg-white/90 backdrop-blur-sm p-4 rounded-xl border border-slate-200 shadow-sm space-y-3">
+              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">
+                Map Legend
+              </div>
+              <div className="space-y-2">
+                {scenarioLocationName && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-1 bg-cyan-500 rounded-full" />
+                    <span className="text-[10px] font-medium text-slate-600">
+                      {scenarioLocationName} Highlight
+                    </span>
+                  </div>
+                )}
+                {showDrainage && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-0.5 border-t-2 border-dashed border-teal-600" />
+                    <span className="text-[10px] font-medium text-slate-600">
+                      Drainage Features
+                    </span>
+                  </div>
+                )}
+                {blockedEdges.length > 0 && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-3 bg-red-400 opacity-20 border border-red-200 rounded-sm" />
+                    <span className="text-[10px] font-medium text-slate-600">
+                      Blocked Roads ({blockedEdges.length})
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Map Canvas — fills center column only; min-h-0 keeps height fixed */}
+          <div className="flex-1 min-h-0 relative overflow-hidden">
             {isLoading ? (
               <div className="absolute inset-0 flex items-center justify-center">
                 <Loader2 className="w-8 h-8 animate-spin text-cyan-600" />
@@ -585,208 +621,395 @@ export function ScenarioConfigPage() {
                 }
                 drainageGeoJSON={showDrainage ? drainageGeoJSON : null}
                 blockedEdges={blockedEdges}
-                startNode={startNode}
-                endNode={endNode}
-                startCoords={startCoords}
-                endCoords={endCoords}
-                originalPathCoords={originalPathCoords}
-                newPathCoords={newPathCoords}
                 showPOIs={showPOIs}
                 showCriticalRoads={showCriticalRoads}
                 showDrainage={showDrainage}
                 onRoadClick={handleRoadClick}
-                onMapClick={handleMapClick}
-                onSimulationResult={handleSimulationResult}
                 center={mapCenter}
                 zoom={15}
               />
             )}
           </div>
-          <div className="border-t border-slate-200 bg-white px-4 py-2">
-            <h3 className="text-sm font-semibold text-slate-700">
-              Simulation Result
-            </h3>
-            <pre className="mt-1 bg-slate-900 text-emerald-400 text-xs font-mono overflow-auto max-h-28 rounded p-2">
-              {simulationResult}
-            </pre>
-          </div>
         </div>
 
-        {/* Right column: Risk Scores + severity */}
-        <div className="w-80 flex-shrink-0 flex flex-col bg-white border-l border-slate-200 overflow-y-auto p-4 space-y-4">
-          <h3 className="text-sm font-bold text-slate-700">⚠️ Risk Scores</h3>
-          <p className="text-xs text-slate-500">
-            0 = low risk, 100 = high risk
-          </p>
+        {/* 3) RIGHT PANEL — IMPACT SUMMARY */}
+        <div className="w-80 flex-shrink-0 bg-white border-l border-slate-200 flex flex-col overflow-y-auto">
+          <div className="p-5 border-b border-slate-100 bg-slate-50/50">
+            <h2 className="text-xs font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+              <Activity className="w-4 h-4 text-rose-500" />
+              Impact Summary
+            </h2>
+          </div>
 
-          {riskScores ? (
-            <div className="space-y-3">
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-xs text-slate-600">🌊 Flood</span>
-                  <span className="text-sm font-bold text-slate-900">
-                    {riskScores.flood_risk}
-                  </span>
-                </div>
-                <div
-                  className={`mt-2 inline-block px-2 py-0.5 rounded text-xs font-medium border ${severityLabel(riskScores.flood_risk).className}`}
-                >
-                  Severity: {severityLabel(riskScores.flood_risk).label}
-                </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  {riskScores.flood_reason}
-                </p>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-xs text-slate-600">🚗 Traffic</span>
-                  <span className="text-sm font-bold text-slate-900">
-                    {riskScores.traffic_risk}
-                  </span>
-                </div>
-                <div
-                  className={`mt-2 inline-block px-2 py-0.5 rounded text-xs font-medium border ${severityLabel(riskScores.traffic_risk).className}`}
-                >
-                  Severity: {severityLabel(riskScores.traffic_risk).label}
-                </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  {riskScores.traffic_reason}
-                </p>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <div className="flex justify-between items-center mb-1">
-                  <span className="text-xs text-slate-600">
-                    🚑 Emergency Access
-                  </span>
-                  <span className="text-sm font-bold text-slate-900">
-                    {riskScores.emergency_access_risk}
-                  </span>
-                </div>
-                <div
-                  className={`mt-2 inline-block px-2 py-0.5 rounded text-xs font-medium border ${severityLabel(riskScores.emergency_access_risk).className}`}
-                >
-                  Severity:{" "}
-                  {severityLabel(riskScores.emergency_access_risk).label}
-                </div>
-                <p className="text-xs text-slate-500 mt-2">
-                  {riskScores.emergency_reason}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-slate-500">
-              Run a scenario or block roads to see risk scores.
-            </p>
-          )}
-
-          {endNode && (
-            <div className="border-t border-slate-200 pt-4 space-y-2">
-              <h3 className="text-sm font-bold text-slate-700">
-                📊 Policy Impact
-              </h3>
-              {currentPath ? (
-                <>
-                  <div className="p-2 bg-slate-50 rounded text-xs">
-                    <span className="text-slate-500">Original:</span>{" "}
-                    <span className="font-bold">
-                      {originalLength.toFixed(0)} m
-                    </span>
-                  </div>
-                  <div className="p-2 bg-slate-50 rounded text-xs">
-                    <span className="text-slate-500">New:</span>{" "}
-                    <span className="font-bold text-red-600">
-                      {currentLength.toFixed(0)} m
-                    </span>
-                    {percentageIncrease > 0 && (
-                      <span className="ml-1">
-                        (+{percentageIncrease.toFixed(1)}%)
+          <div className="p-5 space-y-6">
+            {/* Metric Cards */}
+            {riskScores ? (
+              <div className="space-y-3">
+                <div className="p-4 border border-slate-100 rounded-xl bg-slate-50/50 space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-2">
+                      <Droplets className="w-4 h-4 text-teal-600" />
+                      <span className="text-xs font-bold text-slate-700">
+                        Flood Risk
                       </span>
-                    )}
+                    </div>
+                    <RiskBadge
+                      level={severityLabel(riskScores.flood_risk).label}
+                      color={severityLabel(riskScores.flood_risk).badgeColor}
+                    />
                   </div>
-                </>
-              ) : (
-                <div className="p-2 bg-red-50 text-red-700 rounded text-xs font-bold">
-                  🚨 DESTINATION UNREACHABLE
+                  <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                    <span className="text-slate-400 line-through font-normal">
+                      {riskScores.flood_risk > 0 ? "High" : ""}
+                    </span>
+                    {riskScores.flood_risk > 0 && (
+                      <ArrowRight className="w-3.5 h-3.5 text-slate-300" />
+                    )}
+                    <span>{riskScores.flood_risk}</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 leading-tight">
+                    {riskScores.flood_reason}
+                  </div>
                 </div>
-              )}
-            </div>
-          )}
+
+                <div className="p-4 border border-slate-100 rounded-xl bg-slate-50/50 space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-2">
+                      <Navigation className="w-4 h-4 text-amber-600" />
+                      <span className="text-xs font-bold text-slate-700">
+                        Traffic Disruption
+                      </span>
+                    </div>
+                    <RiskBadge
+                      level={severityLabel(riskScores.traffic_risk).label}
+                      color={severityLabel(riskScores.traffic_risk).badgeColor}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                    <span>{riskScores.traffic_risk}</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 leading-tight">
+                    {riskScores.traffic_reason}
+                  </div>
+                </div>
+
+                <div className="p-4 border border-slate-100 rounded-xl bg-slate-50/50 space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-teal-600" />
+                      <span className="text-xs font-bold text-slate-700">
+                        Emergency Accessibility
+                      </span>
+                    </div>
+                    <RiskBadge
+                      level={
+                        severityLabel(riskScores.emergency_access_risk).label
+                      }
+                      color={
+                        severityLabel(riskScores.emergency_access_risk)
+                          .badgeColor
+                      }
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 text-sm font-bold text-slate-900">
+                    <span
+                      className={
+                        riskScores.emergency_access_risk <= 25
+                          ? "text-emerald-600"
+                          : ""
+                      }
+                    >
+                      {riskScores.emergency_access_risk <= 25
+                        ? "Improved"
+                        : riskScores.emergency_access_risk}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 leading-tight">
+                    {riskScores.emergency_reason}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="text-[10px] text-slate-500 text-center py-8">
+                Run a scenario to see impact summary
+              </div>
+            )}
+
+            {/* Overall Risk Index */}
+            {overallRiskIndex !== null && (
+              <div className="pt-4 border-t border-slate-100">
+                <div className="flex justify-between items-center mb-3">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                    Overall Risk Index
+                  </span>
+                  <span className="text-[10px] font-bold text-emerald-600 uppercase">
+                    {overallRiskIndex <= 25
+                      ? "Low"
+                      : overallRiskIndex <= 50
+                        ? "Medium"
+                        : overallRiskIndex <= 75
+                          ? "High"
+                          : "Critical"}
+                  </span>
+                </div>
+                <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden flex">
+                  <div
+                    className="h-full bg-emerald-500"
+                    style={{ width: `${overallRiskPercent}%` }}
+                  />
+                  <div
+                    className="h-full bg-slate-300"
+                    style={{ width: `${100 - overallRiskPercent}%` }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* System Impact Breakdown */}
+            {systemImpactData.length > 0 && (
+              <div className="pt-4 space-y-4 pb-4">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">
+                  Affected Systems
+                </span>
+                <div className="h-40">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={systemImpactData}
+                      layout="vertical"
+                      margin={{ left: -30 }}
+                    >
+                      <XAxis type="number" hide />
+                      <YAxis
+                        dataKey="name"
+                        type="category"
+                        axisLine={false}
+                        tickLine={false}
+                        style={{ fontSize: "10px" }}
+                        width={60}
+                      />
+                      <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={12}>
+                        {systemImpactData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="space-y-2">
+                  {systemImpactData.map((sys) => (
+                    <div
+                      key={sys.name}
+                      className="flex justify-between items-center text-[10px]"
+                    >
+                      <span className="text-slate-500 font-medium">
+                        {sys.name}
+                      </span>
+                      <span
+                        className={`font-bold ${sys.impact.includes("Positive") ? "text-emerald-600" : "text-amber-600"}`}
+                      >
+                        {sys.impact}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Full-width: Policy suggestions below */}
-      <div className="border-t border-slate-200 bg-white p-6">
-        <h3 className="text-sm font-bold text-slate-700 mb-3">
-          💡 Infrastructure Policy Suggestions
-        </h3>
-        <div className="flex flex-wrap items-center gap-3 mb-4">
-          <button
-            onClick={handleGeneratePolicySuggestions}
-            disabled={isGeneratingSuggestions || blockedEdges.length === 0}
-            className="px-4 py-2 bg-slate-600 text-white rounded-lg text-xs font-bold uppercase hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {isGeneratingSuggestions ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" /> Generating...
-              </>
+      {/* 4) POLICY INSIGHTS PANEL — just below main content; 44px collapsed, 70vh when expanded */}
+      <motion.div
+        initial={false}
+        animate={{
+          height: isBottomPanelExpanded ? "70vh" : "44px",
+        }}
+        transition={{ type: "tween", duration: 0.25 }}
+        className="shrink-0 bg-slate-900 border-t border-slate-800 text-white overflow-hidden shadow-2xl"
+      >
+        <div
+          className="px-6 h-11 flex items-center justify-between cursor-pointer hover:bg-slate-800 transition-colors"
+          onClick={() => setIsBottomPanelExpanded(!isBottomPanelExpanded)}
+        >
+          <div className="flex items-center gap-3">
+            <Sparkles className="w-4 h-4 text-cyan-400" />
+            <h3 className="text-sm font-bold tracking-wide uppercase">
+              CivicSense AI – Policy Insights
+            </h3>
+          </div>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleGeneratePolicySuggestions();
+              }}
+              disabled={isGeneratingSuggestions || blockedEdges.length === 0}
+              className="px-3 py-1 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 disabled:cursor-not-allowed text-[10px] font-bold uppercase rounded"
+            >
+              {isGeneratingSuggestions ? "Generating..." : "Generate"}
+            </button>
+            {isBottomPanelExpanded ? (
+              <ChevronDown className="w-4 h-4" />
             ) : (
-              <>
-                <Sparkles className="w-4 h-4" /> Generate Policy Suggestions
-              </>
-            )}
-          </button>
-          {!policySuggestions && blockedEdges.length > 0 && (
-            <span className="text-xs text-slate-500">
-              Block roads or run a scenario, then generate.
-            </span>
-          )}
-        </div>
-
-        {policySuggestions && (
-          <div className="space-y-3">
-            {policySuggestions.used_fallback && (
-              <p className="text-xs text-amber-600">
-                📌 Rule-based (API quota exceeded or unavailable)
-              </p>
-            )}
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {policySuggestions.suggestions.map((suggestion, idx) => (
-                <div
-                  key={idx}
-                  className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-slate-700"
-                >
-                  <span className="font-semibold">{idx + 1}.</span> {suggestion}
-                </div>
-              ))}
-            </div>
-            {policySuggestions.analysis && (
-              <details className="mt-3">
-                <summary className="cursor-pointer text-xs text-slate-600 hover:text-slate-800">
-                  📊 Analysis Summary
-                </summary>
-                <div className="mt-2 space-y-1 text-xs text-slate-500">
-                  <p>
-                    • {policySuggestions.analysis.blocked_roads_count} blocked
-                    roads
-                  </p>
-                  <p>
-                    •{" "}
-                    {policySuggestions.analysis.path_detour_percent.toFixed(1)}%
-                    detour impact
-                  </p>
-                  <p>
-                    • {policySuggestions.analysis.hotspot_areas.length} hotspot
-                    areas
-                  </p>
-                  <p>
-                    • {policySuggestions.analysis.bottleneck_roads.length}{" "}
-                    critical bottlenecks
-                  </p>
-                </div>
-              </details>
+              <ChevronUp className="w-4 h-4" />
             )}
           </div>
+        </div>
+
+        {isBottomPanelExpanded && (
+          <div className="p-6 pt-2 h-[calc(100%-2.75rem)] border-t border-slate-800 flex flex-col min-h-0">
+            <div className="flex gap-8 flex-1 min-h-0 overflow-hidden">
+              {/* Tab Selector */}
+              <div className="w-48 flex flex-col gap-1 border-r border-slate-800 pr-4">
+                {[
+                  {
+                    id: "explanation",
+                    label: "AI Explanation",
+                    icon: Info,
+                  },
+                  {
+                    id: "suggested",
+                    label: "Suggested Scenarios",
+                    icon: Sparkles,
+                  },
+                ].map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded text-xs font-bold transition-all ${
+                      activeTab === tab.id
+                        ? "bg-cyan-500/10 text-cyan-400 shadow-inner"
+                        : "text-slate-500 hover:text-slate-300"
+                    }`}
+                  >
+                    <tab.icon className="w-3.5 h-3.5" />
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab Content */}
+              <div className="flex-1 overflow-y-auto pr-4">
+                <AnimatePresence mode="wait">
+                  {activeTab === "explanation" && (
+                    <motion.div
+                      key="exp"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="space-y-4"
+                    >
+                      {policySuggestions && policySuggestions.success ? (
+                        <>
+                          <h4 className="text-[10px] font-bold text-cyan-500 uppercase tracking-widest">
+                            Reasoning Summary
+                          </h4>
+                          <p className="text-sm text-slate-300 leading-relaxed font-light">
+                            {policySuggestions.suggestions.length > 0
+                              ? `The simulated scenario analysis generated ${policySuggestions.suggestions.length} infrastructure policy suggestions. ${policySuggestions.analysis ? `Current state: ${policySuggestions.analysis.blocked_roads_count} blocked roads.` : ""}`
+                              : "Generate policy suggestions to see AI reasoning."}
+                          </p>
+                          {policySuggestions.analysis && (
+                            <div className="grid grid-cols-2 gap-4">
+                              <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+                                <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">
+                                  Key Insight
+                                </p>
+                                <p className="text-xs text-slate-300 font-light">
+                                  {
+                                    policySuggestions.analysis.hotspot_areas
+                                      .length
+                                  }{" "}
+                                  hotspot areas identified with blocked
+                                  connections.
+                                </p>
+                              </div>
+                              <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+                                <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">
+                                  Impact Confidence
+                                </p>
+                                <p className="text-xs text-slate-300 font-light">
+                                  {
+                                    policySuggestions.analysis.bottleneck_roads
+                                      .length
+                                  }{" "}
+                                  critical bottlenecks require infrastructure
+                                  intervention.
+                                </p>
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <p className="text-sm text-slate-400">
+                          Block roads or run a scenario, then generate policy
+                          suggestions to see AI insights.
+                        </p>
+                      )}
+                    </motion.div>
+                  )}
+
+                  {activeTab === "suggested" && (
+                    <motion.div
+                      key="sug"
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="space-y-3"
+                    >
+                      {policySuggestions &&
+                      policySuggestions.success &&
+                      policySuggestions.suggestions.length > 0 ? (
+                        policySuggestions.suggestions.map((suggestion, i) => (
+                          <div
+                            key={i}
+                            className="p-4 bg-slate-800 border border-slate-700 rounded-xl"
+                          >
+                            <p className="text-sm text-slate-300 leading-relaxed">
+                              {suggestion}
+                            </p>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-slate-400">
+                          Generate policy suggestions to see recommended
+                          scenarios.
+                        </p>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </div>
+          </div>
         )}
+      </motion.div>
+
+      {/* FOOTER / STATUS BAR */}
+      <div className="px-6 py-1.5 bg-white border-t border-slate-200 flex justify-between items-center text-[10px] font-medium text-slate-400 flex-shrink-0">
+        <div className="flex items-center gap-4">
+          {scenarioMessage?.kind === "success" && (
+            <span className="flex items-center gap-1 text-emerald-600">
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Simulation complete{" "}
+              {policySuggestions && policySuggestions.success
+                ? "· AI insights generated"
+                : ""}
+            </span>
+          )}
+          <span className="flex items-center gap-1">
+            <Info className="w-3.5 h-3.5" />
+            GenAI reasons over simulation outputs. It does not replace physical
+            or engineering models.
+          </span>
+        </div>
+        <div>
+          Last Simulated:{" "}
+          {new Date().toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}{" "}
+          | CivicSense Core v2.4
+        </div>
       </div>
     </div>
   );

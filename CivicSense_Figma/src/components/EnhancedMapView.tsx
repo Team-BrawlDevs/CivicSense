@@ -1,8 +1,7 @@
 /**
- * EnhancedMapView - Combines all Streamlit features:
- * - Click roads to block them (index.html style)
- * - Click map to set start/end points for route simulation
- * - Show paths, markers, blocked edges
+ * EnhancedMapView - Map with road blocking and layers:
+ * - Click roads to block them
+ * - Show blocked edges, POIs, critical roads, drainage
  * - Toggle layers
  */
 import { useEffect, useRef } from 'react';
@@ -17,17 +16,10 @@ interface EnhancedMapViewProps {
   criticalRoadsGeoJSON?: GeoJSONCollection | null;
   drainageGeoJSON?: GeoJSONCollection | null;
   blockedEdges?: [number, number][];
-  startNode?: number | null;
-  endNode?: number | null;
-  startCoords?: [number, number] | null;
-  endCoords?: [number, number] | null;
-  originalPathCoords?: [number, number][];
-  newPathCoords?: [number, number][];
   showPOIs?: boolean;
   showCriticalRoads?: boolean;
   showDrainage?: boolean;
   onRoadClick?: (u: number, v: number) => void;
-  onMapClick?: (lat: number, lon: number) => void;
   onSimulationResult?: (result: unknown) => void;
   center?: [number, number];
   zoom?: number;
@@ -39,17 +31,10 @@ export function EnhancedMapView({
   criticalRoadsGeoJSON,
   drainageGeoJSON,
   blockedEdges = [],
-  startNode,
-  endNode,
-  startCoords,
-  endCoords,
-  originalPathCoords,
-  newPathCoords,
   showPOIs = true,
   showCriticalRoads = true,
   showDrainage = true,
   onRoadClick,
-  onMapClick,
   onSimulationResult,
   center = [12.9229, 80.1275],
   zoom = 15,
@@ -62,10 +47,6 @@ export function EnhancedMapView({
     critical?: L.GeoJSON;
     drainage?: L.GeoJSON;
     blocked?: L.LayerGroup;
-    startMarker?: L.Marker;
-    endMarker?: L.Marker;
-    originalPath?: L.Polyline;
-    newPath?: L.Polyline;
   }>({});
   const blockedKeysRef = useRef<Set<string>>(new Set());
 
@@ -112,12 +93,6 @@ export function EnhancedMapView({
       .addTo(map);
 
     mapRef.current = map;
-
-    if (onMapClick) {
-      map.on('click', (e) => {
-        onMapClick(e.latlng.lat, e.latlng.lng);
-      });
-    }
 
     return () => {
       map.remove();
@@ -305,89 +280,6 @@ export function EnhancedMapView({
     drainageLayer.addTo(mapRef.current);
     layersRef.current.drainage = drainageLayer;
   }, [drainageGeoJSON, showDrainage]);
-
-  // Add start marker
-  useEffect(() => {
-    if (!mapRef.current) return;
-
-    if (layersRef.current.startMarker) {
-      mapRef.current.removeLayer(layersRef.current.startMarker);
-    }
-
-    if (startCoords) {
-      const marker = L.marker([startCoords[0], startCoords[1]], {
-        icon: L.divIcon({
-          className: 'custom-marker',
-          html: '<div style="background-color: green; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
-          iconSize: [20, 20],
-          iconAnchor: [10, 10],
-        }),
-      }).bindTooltip('Start', { permanent: false });
-      marker.addTo(mapRef.current);
-      layersRef.current.startMarker = marker;
-    }
-  }, [startCoords]);
-
-  // Add end marker
-  useEffect(() => {
-    if (!mapRef.current) return;
-
-    if (layersRef.current.endMarker) {
-      mapRef.current.removeLayer(layersRef.current.endMarker);
-    }
-
-    if (endCoords) {
-      const marker = L.marker([endCoords[0], endCoords[1]], {
-        icon: L.divIcon({
-          className: 'custom-marker',
-          html: '<div style="background-color: red; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>',
-          iconSize: [20, 20],
-          iconAnchor: [10, 10],
-        }),
-      }).bindTooltip('End', { permanent: false });
-      marker.addTo(mapRef.current);
-      layersRef.current.endMarker = marker;
-    }
-  }, [endCoords]);
-
-  // Add original path (blue)
-  useEffect(() => {
-    if (!mapRef.current) return;
-
-    if (layersRef.current.originalPath) {
-      mapRef.current.removeLayer(layersRef.current.originalPath);
-    }
-
-    if (originalPathCoords && originalPathCoords.length > 0) {
-      const path = L.polyline(originalPathCoords as [number, number][], {
-        color: 'blue',
-        weight: 5,
-        opacity: 0.4,
-      }).bindTooltip('Original Path', { permanent: false });
-      path.addTo(mapRef.current);
-      layersRef.current.originalPath = path;
-    }
-  }, [originalPathCoords]);
-
-  // Add new path (red, dashed)
-  useEffect(() => {
-    if (!mapRef.current) return;
-
-    if (layersRef.current.newPath) {
-      mapRef.current.removeLayer(layersRef.current.newPath);
-    }
-
-    if (newPathCoords && newPathCoords.length > 0) {
-      const path = L.polyline(newPathCoords as [number, number][], {
-        color: 'red',
-        weight: 4,
-        opacity: 0.8,
-        dashArray: '10',
-      }).bindTooltip('Detour', { permanent: false });
-      path.addTo(mapRef.current);
-      layersRef.current.newPath = path;
-    }
-  }, [newPathCoords]);
 
   // Contain map stacking so it never paints above app nav (z-[1000])
   return (

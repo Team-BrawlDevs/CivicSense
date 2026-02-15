@@ -39,8 +39,8 @@ export function DigitalWardDashboard() {
         </div>
       </div>
 
-      {/* KPI Cards - Minimized by default */}
-      <Collapsible defaultOpen={false}>
+      {/* KPI Cards */}
+      <Collapsible defaultOpen={true}>
         <CollapsibleTrigger className="group flex items-center gap-2 w-full p-3 bg-white rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors">
           <ChevronRight className="w-5 h-5 text-slate-600 group-data-[state=open]:rotate-90 transition-transform" />
           <span className="text-lg font-semibold text-slate-800">KPI Cards</span>
@@ -80,16 +80,16 @@ export function DigitalWardDashboard() {
 
       {/* Main Map and Layer Controls */}
       <div className="grid grid-cols-4 gap-6">
-        {/* Layer Controls - Entire left column minimized by default */}
+        {/* Layer Controls */}
         <div className="col-span-1">
-          <Collapsible defaultOpen={false}>
+          <Collapsible defaultOpen={true}>
             <CollapsibleTrigger className="group flex items-center gap-2 w-full p-4 bg-white rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors text-left">
               <ChevronRight className="w-5 h-5 text-slate-600 group-data-[state=open]:rotate-90 transition-transform" />
               <span className="text-lg font-semibold text-slate-800">Left Panel</span>
             </CollapsibleTrigger>
             <CollapsibleContent>
               <div className="space-y-4 mt-4">
-                <Collapsible defaultOpen={false}>
+                <Collapsible defaultOpen={true}>
                   <CollapsibleTrigger className="group flex items-center gap-2 w-full p-4 bg-white rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors text-left">
                     <ChevronRight className="w-5 h-5 text-slate-600 group-data-[state=open]:rotate-90 transition-transform" />
                     <Layers className="w-5 h-5 text-slate-700" />
@@ -115,8 +115,8 @@ export function DigitalWardDashboard() {
                   </CollapsibleContent>
                 </Collapsible>
 
-                {/* Active Alerts - Minimized by default */}
-                <Collapsible defaultOpen={false}>
+                {/* Active Alerts */}
+                <Collapsible defaultOpen={true}>
                   <CollapsibleTrigger className="group flex items-center gap-2 w-full p-4 bg-white rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors text-left">
                     <ChevronRight className="w-5 h-5 text-slate-600 group-data-[state=open]:rotate-90 transition-transform" />
                     <AlertCircle className="w-5 h-5 text-amber-600" />
@@ -149,9 +149,9 @@ export function DigitalWardDashboard() {
           </Collapsible>
         </div>
 
-        {/* Interactive Map - Minimized by default */}
+        {/* Interactive Map */}
         <div className="col-span-3">
-          <Collapsible defaultOpen={false}>
+          <Collapsible defaultOpen={true}>
             <CollapsibleTrigger className="group flex items-center gap-2 w-full p-4 bg-white rounded-lg border border-gray-300 hover:bg-gray-50 transition-colors text-left">
               <ChevronRight className="w-5 h-5 text-slate-600 group-data-[state=open]:rotate-90 transition-transform" />
               <span className="text-lg font-semibold text-slate-800">Interactive Ward Map</span>

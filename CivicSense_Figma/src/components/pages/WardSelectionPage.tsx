@@ -23,6 +23,11 @@ export function WardSelectionPage({ onSelectWard }: WardSelectionPageProps) {
     { year: '2023', population: 37800 },
     { year: '2024', population: 38200 },
     { year: '2025', population: 38900 },
+    { year: '2026', population: 39800 },
+    { year: '2027', population: 41200 },
+    { year: '2028', population: 42800 },
+    { year: '2029', population: 44500 },
+    { year: '2030', population: 46200 },
   ];
 
   const baselineMetrics = [
@@ -66,15 +71,6 @@ export function WardSelectionPage({ onSelectWard }: WardSelectionPageProps) {
       icon: '🏗️',
       status: 'good'
     },
-  ];
-
-  const dataAvailability = [
-    { system: 'Mobility', status: 'complete', coverage: 95 },
-    { system: 'Drainage', status: 'complete', coverage: 92 },
-    { system: 'Water Supply', status: 'partial', coverage: 78 },
-    { system: 'Power Grid', status: 'complete', coverage: 98 },
-    { system: 'Waste Management', status: 'complete', coverage: 88 },
-    { system: 'Demographics', status: 'complete', coverage: 100 },
   ];
 
   return (
@@ -170,7 +166,7 @@ export function WardSelectionPage({ onSelectWard }: WardSelectionPageProps) {
 
             {/* Population Trend */}
             <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
-              <h2 className="text-white mb-4">Population Trend (2020-2025)</h2>
+              <h2 className="text-white mb-4">Population Trend (2020–2030)</h2>
               <ResponsiveContainer width="100%" height={200}>
                 <LineChart data={populationTrend}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
@@ -183,44 +179,6 @@ export function WardSelectionPage({ onSelectWard }: WardSelectionPageProps) {
                   <Line type="monotone" dataKey="population" stroke="#06b6d4" strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
-            </div>
-
-            {/* Data Availability */}
-            <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
-              <h2 className="text-white mb-4">Data Availability Indicators</h2>
-              <div className="space-y-3">
-                {dataAvailability.map((item, index) => (
-                  <div key={index} className="flex items-center gap-4">
-                    <div className="w-40 text-gray-300">{item.system}</div>
-                    <div className="flex-1 bg-slate-700 rounded-full h-2">
-                      <div 
-                        className={`h-full rounded-full ${
-                          item.status === 'complete' ? 'bg-green-500' : 'bg-amber-500'
-                        }`}
-                        style={{ width: `${item.coverage}%` }}
-                      />
-                    </div>
-                    <div className="w-16 text-right">
-                      <span className={`text-sm ${
-                        item.status === 'complete' ? 'text-green-400' : 'text-amber-400'
-                      }`}>
-                        {item.coverage}%
-                      </span>
-                    </div>
-                    <div className="w-20">
-                      {item.status === 'complete' ? (
-                        <span className="text-xs text-green-400 flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3" /> Complete
-                        </span>
-                      ) : (
-                        <span className="text-xs text-amber-400 flex items-center gap-1">
-                          <AlertCircle className="w-3 h-3" /> Partial
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
 
             {/* Action Button */}

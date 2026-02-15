@@ -191,55 +191,6 @@ export async function getBlockedEdges(
 }
 
 /**
- * Calculate shortest path with blocked edges
- */
-export async function calculatePath(
-  startNode: number,
-  endNode: number,
-  blockedEdges: [number, number][] = []
-): Promise<PathResult> {
-  const response = await fetch(`${API_BASE_URL}/api/path/calculate`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      start_node: startNode,
-      end_node: endNode,
-      blocked_edges: blockedEdges,
-    }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to calculate path: ${response.statusText}`);
-  }
-
-  return response.json();
-}
-
-/**
- * Find nearest node to coordinates
- */
-export async function findNearestNode(
-  lat: number,
-  lon: number
-): Promise<NodeResult> {
-  const response = await fetch(`${API_BASE_URL}/api/map/nearest-node`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ lat, lon }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to find nearest node: ${response.statusText}`);
-  }
-
-  return response.json();
-}
-
-/**
  * Find nearest edge to coordinates
  */
 export async function findNearestEdge(
@@ -311,12 +262,6 @@ export async function computeRiskScores(
  */
 export async function getPolicySuggestions(
   blockedEdges: [number, number][] = [],
-  startNode?: number | null,
-  endNode?: number | null,
-  originalPath?: number[] | null,
-  originalLength: number = 0,
-  currentPath?: number[] | null,
-  currentLength: number = 0,
   areaName?: string | null
 ): Promise<PolicySuggestionsResult> {
   const response = await fetch(`${API_BASE_URL}/api/policy-suggestions`, {
@@ -326,12 +271,12 @@ export async function getPolicySuggestions(
     },
     body: JSON.stringify({
       blocked_edges: blockedEdges,
-      start_node: startNode ?? null,
-      end_node: endNode ?? null,
-      original_path: originalPath ?? null,
-      original_length: originalLength,
-      current_path: currentPath ?? null,
-      current_length: currentLength,
+      start_node: null,
+      end_node: null,
+      original_path: null,
+      original_length: 0,
+      current_path: null,
+      current_length: 0,
       area_name: areaName ?? null,
     }),
   });

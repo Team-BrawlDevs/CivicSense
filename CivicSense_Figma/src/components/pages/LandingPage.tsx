@@ -5,16 +5,6 @@ interface LandingPageProps {
 }
 
 export function LandingPage({ onEnterDashboard }: LandingPageProps) {
-  const coverageCards = [
-    { title: 'Population', value: '250K+', color: 'bg-blue-500' },
-    { title: 'Mobility', value: '1200 km', subtitle: 'Road Network', color: 'bg-cyan-500' },
-    { title: 'Drainage', value: '850 km', subtitle: 'Pipeline', color: 'bg-teal-500' },
-    { title: 'Water Supply', value: '95%', subtitle: 'Coverage', color: 'bg-blue-600' },
-    { title: 'Power Grid', value: '420 MW', subtitle: 'Capacity', color: 'bg-indigo-500' },
-    { title: 'Waste Mgmt', value: '180 TPD', subtitle: 'Capacity', color: 'bg-emerald-500' },
-    { title: 'Public Services', value: '340+', subtitle: 'Facilities', color: 'bg-violet-500' },
-  ];
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
       {/* Header */}
@@ -79,25 +69,6 @@ export function LandingPage({ onEnterDashboard }: LandingPageProps) {
                 </div>
               );
             })}
-          </div>
-        </div>
-
-        {/* System Coverage Cards */}
-        <div className="mb-12">
-          <h2 className="text-2xl text-white mb-8 text-center">System Coverage</h2>
-          <div className="grid grid-cols-7 gap-4">
-            {coverageCards.map((card, index) => (
-              <div key={index} className="bg-slate-800 border border-slate-700 rounded-lg p-6 hover:border-cyan-500 transition-colors">
-                <div className={`w-12 h-12 ${card.color} rounded-lg mb-4 flex items-center justify-center text-white text-xl`}>
-                  {card.value.charAt(0)}
-                </div>
-                <div className="text-gray-400 text-sm mb-2">{card.title}</div>
-                <div className="text-white text-2xl mb-1">{card.value}</div>
-                {card.subtitle && (
-                  <div className="text-gray-500 text-xs">{card.subtitle}</div>
-                )}
-              </div>
-            ))}
           </div>
         </div>
 

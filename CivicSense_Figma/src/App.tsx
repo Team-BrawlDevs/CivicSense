@@ -23,6 +23,9 @@ const VALID_PAGES = new Set([
   'cross-system', 'impact-evaluation', 'scenario-comparison', 'data-sources',
 ]);
 
+const DEFAULT_WARDS = ['Ward 42', 'Ward 43', 'Ward 44'];
+const DEFAULT_SCENARIOS = ['Baseline', 'Flood', 'Traffic Disruption'];
+
 function getPageFromHash(): string {
   const hash = window.location.hash.slice(1).replace(/^\/?/, '') || 'landing';
   const page = hash === '' ? 'landing' : hash;
@@ -108,16 +111,28 @@ export default function App() {
   const showLayout = currentPage !== 'landing' && currentPage !== 'ward-selection';
 
   return (
-    <div className="min-h-screen bg-gray-50 overflow-x-hidden">
+    <div className="min-h-screen bg-gray-50">
       {showLayout ? (
         <>
-          <TopNavBar 
-            selectedWard={selectedWard}
-            selectedScenario={selectedScenario}
-            onWardChange={setSelectedWard}
-            onScenarioChange={setSelectedScenario}
-          />
-          <div className="relative z-0 flex pt-16 min-h-screen">
+          {/* Navbar: fixed to viewport, always on top */}
+          <div
+            className="fixed left-0 right-0 top-0 z-[9999]"
+            style={{ isolation: 'isolate' }}
+          >
+            <TopNavBar
+              selectedWard={selectedWard}
+              selectedScenario={selectedScenario}
+              wards={DEFAULT_WARDS}
+              scenarios={DEFAULT_SCENARIOS}
+              onWardChange={setSelectedWard}
+              onScenarioChange={setSelectedScenario}
+            />
+          </div>
+          {/* Content: fills viewport below navbar; only this area scrolls */}
+          <div
+            className="fixed left-0 right-0 top-16 bottom-0 flex"
+            style={{ isolation: 'isolate', zIndex: 0 }}
+          >
             <Sidebar
               currentPage={currentPage}
               onNavigate={setCurrentPage}
@@ -125,7 +140,7 @@ export default function App() {
               onCollapsedChange={setIsSidebarCollapsed}
             />
             <main
-              className="flex-1 min-w-0 p-8 overflow-x-hidden transition-all duration-300"
+              className="flex-1 min-w-0 min-h-0 overflow-y-auto overflow-x-hidden p-8 transition-all duration-300"
               style={{
                 marginLeft: isSidebarCollapsed ? '4rem' : '16rem',
                 width: isSidebarCollapsed ? 'calc(100vw - 4rem)' : 'calc(100vw - 16rem)',

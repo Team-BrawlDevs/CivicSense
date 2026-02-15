@@ -28,6 +28,13 @@ TAMBARAM_CENTER = (12.9229, 80.1275)
 TAMBARAM_RADIUS_M = 2000
 TOP_CRITICAL_ROADS = 10
 
+# Predefined areas (Tambaram ward) for scenario prompts and policy suggestions
+KNOWN_AREAS = {
+    "chitlapakkam": {"center": (12.934622764587402, 80.13853454589844), "name": "Chitlapakkam"},
+    "selaiyur": {"center": (12.9187445, 80.1311172), "name": "Selaiyur"},
+    "tambaram_west": {"center": (12.926469212985314, 80.11784627525944), "name": "Tambaram West"},
+}
+
 # Cache for graph data
 _graph_cache = None
 _pois_cache = None
@@ -98,16 +105,23 @@ def load_critical_edges():
     return _critical_edges_cache
 
 def load_location_pois():
-    """Load location POIs for text-to-simulation"""
+    """Load all POI types for text-to-simulation (amenity, building, shop, tourism, leisure, office)."""
     global _location_pois_cache
     if _location_pois_cache is None:
-        print("Loading location POIs...")
+        print("Loading location POIs (all types)...")
+        # Fetch all POIs: any tag with value True returns all features with that tag
         tags = {
-            "amenity": ["market", "marketplace", "hospital", "clinic", "school", "university", "college", "police", "fire_station"],
-            "building": ["school", "hospital", "university", "college", "retail", "commercial"],
+            "amenity": True,
+            "building": True,
+            "shop": True,
+            "tourism": True,
+            "leisure": True,
+            "office": True,
         }
         try:
-            _location_pois_cache = ox.features_from_point(TAMBARAM_CENTER, tags=tags, dist=TAMBARAM_RADIUS_M)
+            _location_pois_cache = ox.features_from_point(
+                TAMBARAM_CENTER, tags=tags, dist=TAMBARAM_RADIUS_M
+            )
         except Exception:
             _location_pois_cache = gpd.GeoDataFrame()
     return _location_pois_cache
@@ -272,32 +286,65 @@ def get_blocked_road_names(graph, blocked_edges):
                 break
     return names
 
+# POI tag columns used for flexible location matching (any location_type from LLM)
+_LOCATION_POI_TAG_COLS = ("amenity", "building", "shop", "tourism", "leisure", "office")
+
+
+def _poi_row_matches_type(row, location_type_normalized):
+    """Return True if row's tags match location_type (normalized string). Handles str or list tag values."""
+    if not location_type_normalized:
+        return False
+
+    def norm(s):
+        return (s or "").strip().lower().replace(" ", "_")
+
+    def values_match(a, b):
+        if not a or not b:
+            return False
+        return a in b or b in a
+
+    for col in _LOCATION_POI_TAG_COLS:
+        if col not in row.index or pd.isna(row[col]):
+            continue
+        raw = row[col]
+        if isinstance(raw, list):
+            for v in raw:
+                if v is None:
+                    continue
+                if values_match(norm(str(v)), location_type_normalized):
+                    return True
+        else:
+            val = norm(str(raw))
+            if values_match(val, location_type_normalized):
+                return True
+    if "name" in row.index and row["name"] is not None and not pd.isna(row["name"]):
+        name = norm(str(row["name"]))
+        if values_match(name, location_type_normalized):
+            return True
+    return False
+
+
 def resolve_location_name(location_type, location_pois_gdf):
-    """Resolve location_type to an OSM place name"""
+    """Resolve location_type (any string from LLM) to an OSM place name."""
     if location_type == "ward_center":
         return "ward center"
+    norm = (location_type or "").strip().lower().replace(" ", "_")
+    if norm in KNOWN_AREAS:
+        return KNOWN_AREAS[norm]["name"]
     if location_pois_gdf.empty:
-        return location_type.replace("_", " ")
-    type_to_amenity = {
-        "market": ["market", "marketplace"],
-        "hospital": ["hospital", "clinic"],
-        "school": ["school", "university", "college"],
-        "commercial": ["retail", "commercial", "market"],
-    }
-    amenities = type_to_amenity.get(location_type, [location_type])
+        return (location_type or "ward center").replace("_", " ")
+    if not norm:
+        return "ward center"
     for _, row in location_pois_gdf.iterrows():
-        geom = row.geometry
-        if geom is None:
+        if row.geometry is None:
             continue
-        for col in ("amenity", "building"):
-            if col not in row.index or row[col] is None or str(row[col]) == "nan":
-                continue
-            val = str(row[col]).lower()
-            if not any(a in val for a in amenities):
-                continue
-            if "name" in row.index and row["name"] is not None and str(row["name"]).strip():
-                return str(row["name"]).strip()[:60]
-            return str(row[col]).strip()[:60]
+        if not _poi_row_matches_type(row, norm):
+            continue
+        if "name" in row.index and row["name"] is not None and str(row["name"]).strip():
+            return str(row["name"]).strip()[:60]
+        for col in _LOCATION_POI_TAG_COLS:
+            if col in row.index and row[col] is not None and str(row[col]) != "nan":
+                return str(row[col]).strip()[:60]
     return location_type.replace("_", " ")
 
 def filter_edges_by_road_type(graph, edge_tuples, road_filter):
@@ -320,32 +367,28 @@ def filter_edges_by_road_type(graph, edge_tuples, road_filter):
     return kept
 
 def resolve_location_center(location_type, location_pois_gdf):
-    """Resolve location type to coordinates"""
+    """Resolve location_type (any string from LLM) to (lat, lon)."""
     if location_type == "ward_center":
+        return TAMBARAM_CENTER
+    norm = (location_type or "").strip().lower().replace(" ", "_")
+    if norm in KNOWN_AREAS:
+        return KNOWN_AREAS[norm]["center"]
+    if not norm:
         return TAMBARAM_CENTER
     if location_pois_gdf.empty:
         return TAMBARAM_CENTER
-    type_to_amenity = {
-        "market": ["market", "marketplace"],
-        "hospital": ["hospital", "clinic"],
-        "school": ["school", "university", "college"],
-        "commercial": ["retail", "commercial", "market"],
-    }
-    amenities = type_to_amenity.get(location_type, [location_type])
     for _, row in location_pois_gdf.iterrows():
         geom = row.geometry
         if geom is None:
+            continue
+        if not _poi_row_matches_type(row, norm):
             continue
         if geom.geom_type == "Point":
             lat, lon = geom.y, geom.x
         else:
             cent = geom.centroid
             lat, lon = cent.y, cent.x
-        for col in ("amenity", "building"):
-            if col in row.index and row[col] is not None and str(row[col]) != "nan":
-                val = str(row[col]).lower()
-                if any(a in val for a in amenities):
-                    return (lat, lon)
+        return (lat, lon)
     return TAMBARAM_CENTER
 
 def parse_scenario_with_keywords(user_text):
@@ -401,14 +444,14 @@ def parse_scenario_with_llm(user_text):
     
     prompt = """You are a parser for an urban traffic simulation. The user describes a scenario (e.g. flash flood, road closure).
 Extract and return ONLY a JSON object with exactly these keys (no other text, no markdown):
-- "location_type": one of "market", "hospital", "school", "ward_center", "commercial"
+- "location_type": any place or area the user refers to, in snake_case. Use these exact values when the user names the area: "chitlapakkam", "selaiyur", "tambaram_west". Other examples: market, hospital, school, ward_center, commercial, bus_station, temple, mall, park, pharmacy. Use "ward_center" only when no specific place or area is mentioned.
 - "radius_m": number in metres, 150 to 1500 (use 400 for "near", 800 for "around", 1500 for "whole area")
 - "road_filter": one of "minor", "non_primary", "all" (minor = residential/small roads, non_primary = all except main highways, all = every road)
 - "event": short label e.g. "flash_flood" or "road_closure" (optional)
 
 Examples:
 User: "Simulate a flash flood near the market that blocks all minor roads" -> {"location_type": "market", "radius_m": 400, "road_filter": "minor", "event": "flash_flood"}
-User: "Block non-primary roads around the hospital" -> {"location_type": "hospital", "radius_m": 500, "road_filter": "non_primary", "event": "road_closure"}
+User: "Block roads around the bus station" -> {"location_type": "bus_station", "radius_m": 500, "road_filter": "minor", "event": "road_closure"}
 User: "Close every road in the ward center" -> {"location_type": "ward_center", "radius_m": 600, "road_filter": "all", "event": "full_closure"}
 
 User input: """
@@ -559,14 +602,15 @@ def compute_risk_scores(graph, blocked_edges, critical_edges, drainage_gdf, synt
         scores["flood_risk"] = min(100, 70 + min(30, minor_roads_count // 10))
         scores["flood_reason"] = "No drainage data; high flood risk in low-lying areas."
 
-    # Traffic risk
+    # Traffic risk: scaled for gradual increase (sub-linear in n_blocked)
     n_blocked = len(blocked_edges)
     blocked_set = set((min(u, v), max(u, v)) for (u, v) in blocked_edges)
     n_bottlenecks = sum(1 for e in critical_edges[:15]
                         if (min(e[0], e[1]), max(e[0], e[1])) in blocked_set)
-    traffic_from_blocked = min(60, n_blocked * 8)
-    traffic_from_detour = min(30, path_detour_percent * 0.5)
-    traffic_from_bottlenecks = min(25, n_bottlenecks * 12)
+    # sqrt scaling so 1 road ≈ 4 pts, 4 roads ≈ 8, 9 ≈ 12, 25 ≈ 20 (cap 35)
+    traffic_from_blocked = min(35, int(4 * math.sqrt(1 + n_blocked)))
+    traffic_from_detour = min(25, path_detour_percent * 0.4)
+    traffic_from_bottlenecks = min(20, int(6 * math.sqrt(1 + n_bottlenecks)))
     scores["traffic_risk"] = min(100, int(traffic_from_blocked + traffic_from_detour + traffic_from_bottlenecks))
     reasons = []
     if n_blocked > 0:
@@ -608,14 +652,18 @@ def compute_risk_scores(graph, blocked_edges, critical_edges, drainage_gdf, synt
                             break
                         except Exception:
                             pass
+    # Emergency: gradual increase with sqrt(n_blocked) so 1 road adds little
+    def _blocked_contrib(n, scale=5, cap=40):
+        return min(cap, int(scale * math.sqrt(1 + n)))
+
     if not emergency_nodes:
         try:
             far_node = max(graph.nodes(), key=lambda n: (graph.nodes[n]["y"] - TAMBARAM_CENTER[0])**2 + (graph.nodes[n]["x"] - TAMBARAM_CENTER[1])**2)
             dist = nx.shortest_path_length(H, center_node, far_node, weight="length")
-            scores["emergency_access_risk"] = min(100, 20 + (0 if n_blocked == 0 else min(50, n_blocked * 5)))
+            scores["emergency_access_risk"] = min(100, 15 + _blocked_contrib(n_blocked, scale=5, cap=45))
             scores["emergency_reason"] = "No hospital/clinic POIs in data; risk from road blocks only."
         except (nx.NetworkXNoPath, KeyError):
-            scores["emergency_access_risk"] = min(100, 50 + n_blocked * 3)
+            scores["emergency_access_risk"] = min(100, 40 + _blocked_contrib(n_blocked, scale=4, cap=45))
             scores["emergency_reason"] = "Network disconnected or no path; emergency access impaired."
     else:
         unreachable = 0
@@ -627,13 +675,13 @@ def compute_risk_scores(graph, blocked_edges, critical_edges, drainage_gdf, synt
             except nx.NetworkXNoPath:
                 unreachable += 1
         if unreachable == len(emergency_nodes):
-            scores["emergency_access_risk"] = min(100, 75 + min(25, n_blocked))
+            scores["emergency_access_risk"] = min(100, 60 + _blocked_contrib(n_blocked, scale=4, cap=30))
             scores["emergency_reason"] = "Emergency POIs unreachable from ward center with current blocks."
         elif unreachable > 0:
-            scores["emergency_access_risk"] = min(100, 45 + unreachable * 15 + min(20, n_blocked * 2))
+            scores["emergency_access_risk"] = min(100, 35 + unreachable * 10 + _blocked_contrib(n_blocked, scale=3, cap=20))
             scores["emergency_reason"] = f"{unreachable} emergency POI(s) unreachable; blocks reduce access."
         else:
-            scores["emergency_access_risk"] = min(100, int(15 + max_dist / 100 + n_blocked * 2))
+            scores["emergency_access_risk"] = min(100, int(10 + max_dist / 150 + _blocked_contrib(n_blocked, scale=3, cap=25)))
             scores["emergency_reason"] = "Emergency POIs reachable; risk from extra distance and blocks."
 
     return scores
@@ -757,14 +805,21 @@ def generate_policy_suggestions_fallback(analysis):
     random.shuffle(out)
     return out
 
-def generate_policy_suggestions(analysis, graph, blocked_edges, critical_edges, drainage_gdf):
-    """Use Gemini API to generate infrastructure policy suggestions. Falls back to rule-based on errors."""
+def generate_policy_suggestions(analysis, graph, blocked_edges, critical_edges, drainage_gdf, area_name=None):
+    """Use Gemini API to generate infrastructure policy suggestions. Falls back to rule-based on errors.
+    area_name: optional focus area (e.g. Chitlapakkam, Selaiyur, Tambaram West) for tailored suggestions."""
     api_key = get_gemini_api_key()
     if not api_key:
         return (True, generate_policy_suggestions_fallback(analysis), True)
 
-    context = f"""You are an urban planning AI assistant for Tambaram Ward, Chennai. Use the EXACT street and intersection names below in your suggestions.
+    area_instruction = ""
+    if area_name and str(area_name).strip():
+        an = str(area_name).strip()
+        area_instruction = f"""- Focus area: {an}. You MUST tailor every suggestion specifically to {an}. Start each suggestion with "In {an}," or "For {an}," and mention area-specific issues (e.g. local lake overflow, market access, connectivity to GST Road). Return suggestions that are DIFFERENT from other areas like Chitlapakkam, Selaiyur, or Tambaram West — do not give generic ward-wide advice.
 
+"""
+    context = f"""You are an urban planning AI assistant for Tambaram Ward, Chennai. Use the EXACT street and intersection names below in your suggestions.
+{area_instruction}
 Current Simulation State:
 - Blocked Roads: {analysis['blocked_roads_count']}
 - Path Detour Impact: {analysis['path_detour_percent']:.1f}% increase
@@ -884,6 +939,7 @@ class PolicySuggestionsRequest(BaseModel):
     original_length: float = 0.0
     current_path: Optional[List[int]] = None
     current_length: float = 0.0
+    area_name: Optional[str] = None  # e.g. Chitlapakkam, Selaiyur, Tambaram West for area-specific suggestions
 
 # API Routes
 @app.get("/")
@@ -1018,6 +1074,19 @@ def parse_scenario(req: ScenarioRequest):
     
     return {"success": True, "intent": result}
 
+def _override_location_type_from_text(text: str, intent: dict) -> None:
+    """If user text mentions a known area, force location_type so map and suggestions use that area."""
+    if not text or not isinstance(intent, dict):
+        return
+    t = text.lower().strip()
+    if "chitlapakkam" in t:
+        intent["location_type"] = "chitlapakkam"
+    elif "selaiyur" in t:
+        intent["location_type"] = "selaiyur"
+    elif "tambaram west" in t or "tambaram_west" in t:
+        intent["location_type"] = "tambaram_west"
+
+
 @app.post("/api/scenario/blocked-edges")
 def get_blocked_edges(req: ScenarioRequest):
     """Get blocked edges for a scenario with enhanced summary"""
@@ -1029,11 +1098,15 @@ def get_blocked_edges(req: ScenarioRequest):
     if not success:
         raise HTTPException(status_code=400, detail=intent)
     
+    _override_location_type_from_text(req.text, intent)
+    
     G = load_graph()
     location_pois = load_location_pois()
+    location_type = intent.get("location_type", "ward_center")
     blocked = scenario_intent_to_blocked_edges(G, intent, location_pois)
     blocked_names = get_blocked_road_names(G, blocked)
-    location_name = resolve_location_name(intent.get("location_type", "ward_center"), location_pois)
+    location_name = resolve_location_name(location_type, location_pois)
+    scenario_center = resolve_location_center(location_type, location_pois)
     event = intent.get("event", "road_closure")
     
     return {
@@ -1043,6 +1116,7 @@ def get_blocked_edges(req: ScenarioRequest):
         "blocked_road_names": blocked_names,
         "location_name": location_name,
         "event": event,
+        "scenario_center": [scenario_center[0], scenario_center[1]],
     }
 
 @app.post("/api/path/calculate")
@@ -1130,7 +1204,8 @@ def get_policy_suggestions(req: PolicySuggestionsRequest):
     )
     
     success, suggestions, used_fallback = generate_policy_suggestions(
-        analysis, G, req.blocked_edges, critical_edges, drainage_gdf
+        analysis, G, req.blocked_edges, critical_edges, drainage_gdf,
+        area_name=req.area_name,
     )
     
     return {
