@@ -24,8 +24,8 @@ interface SidebarProps {
 }
 
 const navItems = [
-  { id: 'overview', label: 'Digital Ward Dashboard', icon: Map },
   { id: 'scenario-simulation', label: 'Scenario Simulation', icon: Sliders },
+  { id: 'overview', label: 'Digital Ward Dashboard', icon: Map },
   { id: 'mobility', label: 'Mobility & Transportation', icon: Car },
   { id: 'drainage', label: 'Drainage & Flooding', icon: Droplet },
   { id: 'water', label: 'Water Supply', icon: Droplets },

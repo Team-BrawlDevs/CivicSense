@@ -71,10 +71,12 @@ https://www.figma.com/make/DQZ23LsHDtESkz9JnDax2v/CivicSense-Web-App-Wireframe?t
 
 Implemented views include:
 
-- **Digital Ward Dashboard** – KPIs, map layers, active alerts (collapsible panels)
-- **Scenario Simulation** – Text-to-simulation (keywords or AI), click-to-block roads, start/end route selection, path comparison
-- **Mobility & Transportation** – Before/after metrics, heatmaps, rerouted paths
-- **Other domain pages** – Drainage, Water, Power, Waste, Population, Public Services, Cross-System Impact, Scenario Comparison, Risk & Resilience, Data Sources
+- **Landing** – Entry point; navigate to ward selection.
+- **Ward Selection** – Select a ward and enter the dashboard (opens **Scenario Simulation** first).
+- **Scenario Simulation** – Text-to-simulation (keywords or AI), click-to-block roads, map with blocked roads list, Policy Insights panel (AI reasoning, blocked roads summary, critical bottlenecks, policy suggestions).
+- **Digital Ward Dashboard** – KPIs, map layers, active alerts (collapsible panels).
+- **Mobility & Transportation** – Before/after metrics, heatmaps, rerouted paths.
+- **Other domain pages** – Drainage, Water, Power, Waste, Population, Public Services, Cross-System Impact, Scenario Comparison, Risk & Resilience, Data Sources.
 
 ---
 
@@ -82,14 +84,14 @@ Implemented views include:
 
 - Conversion of a real-world ward road network (OpenStreetMap) into a digital graph
 - **Policy intervention** simulation (e.g. road closures)
-- Recalculation of routes and impact (distance, unreachable detection)
 - **Text-to-simulation** – natural language or AI (Gemini) to block roads by scenario
-- Interactive map: click roads to block, set start/end for path comparison
-- Visualization of original vs new path and policy impact metrics
+- Interactive map: click roads to block; blocked roads list with expand/collapse
+- **Policy Insights** – AI-generated reasoning summary (scenario, blocked roads, drainage), critical bottlenecks, and policy suggestions
+- Impact evaluation and route-graph analysis (unreachable detection, risk scores)
 
 End-to-end flow:
 
-> **Digital modeling → Policy intervention → Simulation → Impact evaluation**
+> **Digital modeling → Policy intervention (block roads) → Simulation → Policy Insights & impact evaluation**
 
 ---
 

@@ -75,7 +75,7 @@ export default function App() {
       case 'ward-selection':
         return <WardSelectionPage onSelectWard={(ward) => {
           setSelectedWard(ward);
-          setCurrentPage('overview');
+          setCurrentPage('scenario-simulation');
         }} />;
       case 'overview':
         return <DigitalWardDashboard />;
