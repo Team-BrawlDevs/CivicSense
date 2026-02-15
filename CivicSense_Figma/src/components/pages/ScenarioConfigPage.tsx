@@ -27,6 +27,7 @@ import {
   Cell,
 } from "recharts";
 import { motion, AnimatePresence } from "motion/react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
 import { EnhancedMapView } from "../EnhancedMapView";
 import {
   fetchRoadsGeoJSON,
@@ -444,6 +445,52 @@ export function ScenarioConfigPage() {
               </div>
             )}
 
+            {/* Blocked Roads — expandable list, below green success box; starts collapsed */}
+            {(blockedEdges.length > 0 || scenarioBlockedRoadNames.length > 0) && (
+              <div className="pt-4">
+                <Collapsible defaultOpen={false}>
+                  <CollapsibleTrigger className="group flex items-center gap-2 w-full text-left">
+                    <ChevronDown className="w-4 h-4 text-slate-600 group-data-[state=open]:rotate-180 transition-transform" />
+                    <span className="text-[10px] font-bold text-slate-700 uppercase tracking-widest">
+                      Blocked Roads
+                    </span>
+                    <span className="text-[10px] text-slate-500">
+                      ({blockedEdges.length})
+                    </span>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent>
+                    <ul className="mt-2 space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                      {scenarioBlockedRoadNames.length > 0 ? (
+                        scenarioBlockedRoadNames.map((name, i) => (
+                          <li
+                            key={`${name}-${i}`}
+                            className="text-[11px] text-slate-700 py-1 px-2 rounded bg-red-50 border border-red-100"
+                          >
+                            {name}
+                          </li>
+                        ))
+                      ) : (
+                        blockedEdges.map(([u, v], i) => (
+                          <li
+                            key={`${u}-${v}-${i}`}
+                            className="text-[11px] text-slate-600 py-1 px-2 rounded bg-slate-50 border border-slate-200"
+                          >
+                            Edge {u} → {v}
+                          </li>
+                        ))
+                      )}
+                      {scenarioBlockedRoadNames.length > 0 &&
+                        blockedEdges.length > scenarioBlockedRoadNames.length && (
+                          <li className="text-[10px] text-slate-500 italic py-1 px-2">
+                            +{blockedEdges.length - scenarioBlockedRoadNames.length} more on map
+                          </li>
+                        )}
+                    </ul>
+                  </CollapsibleContent>
+                </Collapsible>
+              </div>
+            )}
+
             {/* AI Interpreted Policy Summary Card */}
             {scenarioIntent && (
               <div className="p-4 bg-cyan-50 border border-cyan-100 rounded-xl space-y-4">
@@ -776,7 +823,7 @@ export function ScenarioConfigPage() {
                     <BarChart
                       data={systemImpactData}
                       layout="vertical"
-                      margin={{ left: -30 }}
+                      margin={{ top: 0, right: 10, bottom: 0, left: 30 }}
                     >
                       <XAxis type="number" hide />
                       <YAxis
@@ -785,7 +832,7 @@ export function ScenarioConfigPage() {
                         axisLine={false}
                         tickLine={false}
                         style={{ fontSize: "10px" }}
-                        width={60}
+                        width={30}
                       />
                       <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={12}>
                         {systemImpactData.map((entry, index) => (

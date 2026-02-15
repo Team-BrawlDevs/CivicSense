@@ -1,0 +1,13 @@
+# Netlify config for CivicSense frontend (CivicSense_Figma)
+# The app is in a subdirectory; build and publish from there.
+
+[build]
+  base    = "CivicSense_Figma"
+  command = "npm run build"
+  publish = "build"
+
+# SPA: serve index.html for all routes (hash routing works client-side)
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
