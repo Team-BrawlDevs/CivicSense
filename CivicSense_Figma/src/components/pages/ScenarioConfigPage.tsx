@@ -114,6 +114,7 @@ export function ScenarioConfigPage() {
   const [scenarioBlockedRoadNames, setScenarioBlockedRoadNames] = useState<
     string[]
   >([]);
+  const [summaryBlockedExpanded, setSummaryBlockedExpanded] = useState(false);
   const [scenarioLocationName, setScenarioLocationName] = useState<string>("");
   const [scenarioEvent, setScenarioEvent] = useState<string>("");
   const [mapCenter, setMapCenter] = useState<[number, number]>([
@@ -904,10 +905,10 @@ export function ScenarioConfigPage() {
         </div>
 
         {isBottomPanelExpanded && (
-          <div className="p-6 pt-2 h-[calc(100%-2.75rem)] border-t border-slate-800 flex flex-col min-h-0">
-            <div className="flex gap-8 flex-1 min-h-0 overflow-hidden">
+          <div className="p-6 pt-2 flex flex-col border-t border-slate-800 min-h-0 h-[calc(70vh-2.75rem)]">
+            <div className="flex gap-8 flex-1 min-h-0 min-w-0 overflow-hidden">
               {/* Tab Selector */}
-              <div className="w-48 flex flex-col gap-1 border-r border-slate-800 pr-4">
+              <div className="w-48 flex-shrink-0 flex flex-col gap-1 border-r border-slate-800 pr-4">
                 {[
                   {
                     id: "explanation",
@@ -935,54 +936,104 @@ export function ScenarioConfigPage() {
                 ))}
               </div>
 
-              {/* Tab Content */}
-              <div className="flex-1 overflow-y-auto pr-4">
+              {/* Tab Content — scrollable; explicit min-h-0 and max-h for reliable scroll */}
+              <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden">
+                <div className="overflow-y-auto overflow-x-hidden pr-4 flex-1 min-h-0">
                 <AnimatePresence mode="wait">
                   {activeTab === "explanation" && (
                     <motion.div
                       key="exp"
                       initial={{ opacity: 0, x: 20 }}
                       animate={{ opacity: 1, x: 0 }}
-                      className="space-y-4"
+                      className="space-y-4 pb-4"
                     >
                       {policySuggestions && policySuggestions.success ? (
                         <>
-                          <h4 className="text-[10px] font-bold text-cyan-500 uppercase tracking-widest">
+                          <h4 className="text-[10px] font-bold text-cyan-500 uppercase tracking-widest mb-1.5">
                             Reasoning Summary
                           </h4>
-                          <p className="text-sm text-slate-300 leading-relaxed font-light">
-                            {policySuggestions.suggestions.length > 0
-                              ? `The simulated scenario analysis generated ${policySuggestions.suggestions.length} infrastructure policy suggestions. ${policySuggestions.analysis ? `Current state: ${policySuggestions.analysis.blocked_roads_count} blocked roads.` : ""}`
-                              : "Generate policy suggestions to see AI reasoning."}
-                          </p>
+                          {policySuggestions.suggestions.length > 0 ? (
+                            (() => {
+                              const a = policySuggestions.analysis;
+                              if (!a) {
+                                return (
+                                  <div className="p-2 rounded border border-slate-700 bg-slate-800/50 text-xs text-slate-300 font-light">
+                                    Generated {policySuggestions.suggestions.length} policy suggestion{policySuggestions.suggestions.length !== 1 ? "s" : ""} for the current scenario.
+                                  </div>
+                                );
+                              }
+                              const loc = scenarioLocationName || "the ward";
+                              const leftParts: string[] = [];
+                              leftParts.push(
+                                `For ${loc}, the analysis found ${a.blocked_roads_count} blocked road${a.blocked_roads_count !== 1 ? "s" : ""}.`
+                              );
+                              if (a.drainage_coverage)
+                                leftParts.push(`Drainage coverage: ${a.drainage_coverage}.`);
+                              const showCount = summaryBlockedExpanded
+                                ? scenarioBlockedRoadNames.length
+                                : Math.min(3, scenarioBlockedRoadNames.length);
+                              const blockedToShow = scenarioBlockedRoadNames.slice(0, showCount);
+                              const hasMore = scenarioBlockedRoadNames.length > 3;
+                              return (
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div className="p-2 rounded border border-slate-700 bg-slate-800/50">
+                                    <p className="text-[9px] text-slate-500 font-bold uppercase mb-1">Scenario & drainage</p>
+                                    <p className="text-xs text-slate-300 leading-snug font-light">
+                                      {leftParts.join(" ")}
+                                    </p>
+                                  </div>
+                                  <div className="p-2 rounded border border-slate-700 bg-slate-800/50">
+                                    <p className="text-[9px] text-slate-500 font-bold uppercase mb-1">Blocked roads & output</p>
+                                    <div className="text-xs text-slate-300 leading-snug font-light space-y-1">
+                                      {blockedToShow.length > 0 ? (
+                                        <>
+                                          <ul className="list-disc list-inside text-[11px]">
+                                            {blockedToShow.map((name, i) => (
+                                              <li key={i}>{name}</li>
+                                            ))}
+                                          </ul>
+                                          {hasMore && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setSummaryBlockedExpanded((v) => !v)}
+                                              className="text-slate-400 hover:text-slate-300 text-[11px] underline"
+                                            >
+                                              {summaryBlockedExpanded ? "Show less" : "Show more"}
+                                            </button>
+                                          )}
+                                        </>
+                                      ) : null}
+                                      <p>
+                                        Generated {policySuggestions.suggestions.length} policy suggestion{policySuggestions.suggestions.length !== 1 ? "s" : ""} based on this state.
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })()
+                          ) : (
+                            <p className="text-sm text-slate-400">
+                              Generate policy suggestions to see AI reasoning.
+                            </p>
+                          )}
                           {policySuggestions.analysis && (
-                            <div className="grid grid-cols-2 gap-4">
-                              <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-700">
-                                <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">
-                                  Key Insight
-                                </p>
-                                <p className="text-xs text-slate-300 font-light">
-                                  {
-                                    policySuggestions.analysis.hotspot_areas
-                                      .length
-                                  }{" "}
-                                  hotspot areas identified with blocked
-                                  connections.
-                                </p>
-                              </div>
-                              <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-700">
-                                <p className="text-[10px] text-slate-500 font-bold uppercase mb-1">
-                                  Impact Confidence
-                                </p>
-                                <p className="text-xs text-slate-300 font-light">
-                                  {
-                                    policySuggestions.analysis.bottleneck_roads
-                                      .length
-                                  }{" "}
-                                  critical bottlenecks require infrastructure
-                                  intervention.
-                                </p>
-                              </div>
+                            <div className="space-y-3">
+                              {policySuggestions.analysis.bottleneck_roads?.length > 0 && (
+                                <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+                                  <p className="text-[10px] text-slate-500 font-bold uppercase mb-2">
+                                    Critical bottlenecks ({policySuggestions.analysis.bottleneck_roads.length})
+                                  </p>
+                                  <ul className="text-xs text-slate-300 font-light space-y-1">
+                                    {policySuggestions.analysis.bottleneck_roads.map((b, i) => (
+                                      <li key={i}>
+                                        {b.street_name ||
+                                          b.intersection_label ||
+                                          `Segment ${b.u}–${b.v}`}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
                             </div>
                           )}
                         </>
@@ -1024,6 +1075,7 @@ export function ScenarioConfigPage() {
                     </motion.div>
                   )}
                 </AnimatePresence>
+                </div>
               </div>
             </div>
           </div>
